@@ -13,6 +13,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/init.h>
 #include <linux/time.h>
@@ -36,6 +40,16 @@
 #include "smd_private.h"
 #endif
 #include "timer.h"
+
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+#if !defined(CONFIG_MSM_SMD)
+#include "smd_private.h"
+#endif
+#include <linux/oemnc_smem.h>
+static smem_id_vendor0 *p_smem_id_vendor0=NULL;
+static unsigned int kick_linux;
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
+
 
 enum {
 	MSM_TIMER_DEBUG_SYNC = 1U << 0,
@@ -1179,3 +1193,33 @@ void local_timer_stop(struct clock_event_device *evt)
 struct sys_timer msm_timer = {
 	.init = msm_timer_init
 };
+
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+unsigned int oemnc_timetick_get(void){
+  return jiffies;  
+}
+
+void  oemnc_boot_time_probe(unsigned int num){
+  unsigned int tick;
+  
+  if( num>= BOOT_TIME_NUM ){
+    return;
+  }
+  
+  if(p_smem_id_vendor0==NULL){
+    p_smem_id_vendor0 = (smem_id_vendor0 *)(smem_find(SMEM_ID_VENDOR0, sizeof(smem_id_vendor0)));
+    if(p_smem_id_vendor0==NULL){
+      return;
+    }
+    kick_linux=p_smem_id_vendor0->time_info.boot_time[LINUX_KICK_POINT];
+  }
+  
+  tick=oemnc_timetick_get();
+  
+  tick = tick - INITIAL_JIFFIES + kick_linux;
+  
+  p_smem_id_vendor0->time_info.boot_time[num] = tick;
+  
+}
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
+

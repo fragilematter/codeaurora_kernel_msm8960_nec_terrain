@@ -19,6 +19,11 @@
  * provide a master phys->virt mapping for peripherals here.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __ASM_ARCH_MSM_IOMAP_8960_H
 #define __ASM_ARCH_MSM_IOMAP_8960_H
@@ -107,3 +112,18 @@
 #define MSM8960_QFPROM_SIZE		SZ_4K
 
 #endif
+
+/** FATAL LOG **/
+#define MSM_OEM_NCMC_DB_UINIT_BASE IOMEM(0xFE700000)
+#define MSM_OEM_NCMC_DB_UINIT_PHYS 0x88600000
+#define MSM_OEM_NCMC_DB_UINIT_SIZE (SZ_4K*1535)   /* 6M(6291456)-4K = 4K(4096)*1535 */
+/** FATAL FLG **/
+#define MSM_OEM_NCMC_DB_FLG_UINIT_BASE IOMEM(0xFECFF000)
+#define MSM_OEM_NCMC_DB_FLG_UINIT_PHYS 0x88BFF000
+#define MSM_OEM_NCMC_DB_FLG_UINIT_SIZE (SZ_4K*1)   /* 4K(4096) */
+/* for FlashBackUp */
+#define MSM_OEM_NCMC_FB_UINIT_BASE IOMEM(0xFED00000)
+#define MSM_OEM_NCMC_FB_UINIT_PHYS 0x88C00000
+#define MSM_OEM_NCMC_FB_UINIT_SIZE (SZ_4K*512)   /* 2M(2097152) = 4K(4096)*512 */
+
+

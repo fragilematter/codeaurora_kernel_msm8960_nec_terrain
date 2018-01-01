@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/string.h>
@@ -29,6 +33,10 @@
 #include <asm/setup.h>
 
 #include "peripheral-loader.h"
+
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+#include <linux/oemnc_smem.h>
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
 
 struct pil_device {
 	struct pil_desc *desc;
@@ -221,6 +229,11 @@ static int load_image(struct pil_device *pil)
 		}
 	}
 
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+	if (strcmp(pil->desc->name, "modem") == 0) {
+		oemnc_boot_time_probe(24);
+	}
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
 	ret = pil->desc->ops->auth_and_reset(pil->desc);
 	if (ret) {
 		dev_err(pil->desc->dev, "Failed to bring out of reset\n");

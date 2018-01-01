@@ -10,10 +10,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
-/*
- * Qualcomm PMIC PM8xxx Thermal Manager driver
- */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -81,6 +82,8 @@ enum pmic_thermal_override_mode {
 	SOFTWARE_OVERRIDE_DISABLED = 0,
 	SOFTWARE_OVERRIDE_ENABLED,
 };
+
+static struct pm8xxx_tm_chip *nc_tm_chip; 
 
 static inline int pm8xxx_tm_read_ctrl(struct pm8xxx_tm_chip *chip, u8 *reg)
 {
@@ -630,6 +633,8 @@ static int __devinit pm8xxx_tm_probe(struct platform_device *pdev)
 
 	pr_info("OK\n");
 
+    nc_tm_chip = chip;  
+
 	return 0;
 
 err_free_irq_tempstat:
@@ -723,3 +728,91 @@ MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("PM8xxx Thermal Manager driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:" PM8XXX_TM_DEV_NAME);
+
+
+u16 nc_pm8921_tm_get_temp(u16 therm_ad)
+{
+    therm_table_type    *therm_tbl_ptr = (therm_table_type*)Temperature_Table;
+    int     tbl_cnt = sizeof(Temperature_Table)/sizeof(Temperature_Table[0]);
+    
+    int l = 0;
+    int r = tbl_cnt - 1;
+    int m;
+
+    while (l < r)
+    {
+        m = (l + r) / 2;
+
+        if (therm_tbl_ptr[m].ad > therm_ad)
+        {
+            l = m + 1;
+        }
+        else if (therm_tbl_ptr[m].ad < therm_ad)
+        {
+            r = m - 1;
+        }
+        else
+        {
+            return therm_tbl_ptr[m].disp;
+        }
+    }
+
+    if (therm_tbl_ptr[l].ad > therm_ad)
+    {
+        l += 1;
+    }
+
+    if ( l > (tbl_cnt - 1) ) {
+        l = tbl_cnt -1;
+    }
+
+    return therm_tbl_ptr[l].disp;
+} /* end of sensor_therm_get_temp */
+
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_itemp_get_stage(u8 *stage)
+{
+    int rc = 0;
+    u8 reg = 0x00;
+    
+    rc = pm8xxx_tm_read_ctrl(nc_tm_chip, &reg);
+    if (rc < 0) {
+        *stage = 0;
+        return rc;
+    }
+    
+    *stage = (reg & TEMP_ALARM_CTRL_STATUS_MASK)
+            >> TEMP_ALARM_CTRL_STATUS_SHIFT;
+    
+    nc_tm_chip->stage = *stage;
+    
+    return rc;
+}
+
+EXPORT_SYMBOL(nc_pm8921_itemp_get_stage);
+
+
+int nc_pm8921_itemp_stage_override(enum thermal_device_mode mode)
+{
+    int rc = 0;
+    
+    if (!nc_tm_chip)
+                return -EINVAL;
+
+    if (mode != nc_tm_chip->mode) {
+        if (mode == THERMAL_DEVICE_ENABLED){
+            rc = pm8xxx_tm_shutdown_override(nc_tm_chip,
+                                             SOFTWARE_OVERRIDE_ENABLED);
+        }
+        else {
+            rc = pm8xxx_tm_shutdown_override(nc_tm_chip,
+                                             SOFTWARE_OVERRIDE_DISABLED);
+        }
+        nc_tm_chip->mode = mode;
+    }
+    return rc;
+}
+
+EXPORT_SYMBOL(nc_pm8921_itemp_stage_override);
+#endif

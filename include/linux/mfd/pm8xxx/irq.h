@@ -10,6 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
 /*
  * Qualcomm PMIC irq 8xxx driver header file
  *
@@ -58,4 +59,10 @@ static inline int __devexit pm8xxx_irq_exit(struct pm_irq_chip *chip)
 	return -ENXIO;
 }
 #endif /* CONFIG_MFD_PM8XXX_IRQ */
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_get_rt_status(int irq_id, int* status);
+#endif
+
+
 #endif /* __MFD_PM8XXX_IRQ_H */

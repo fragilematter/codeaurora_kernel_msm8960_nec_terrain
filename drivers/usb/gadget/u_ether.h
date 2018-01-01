@@ -20,6 +20,14 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2012 */
+/**************************************************/
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
 #ifndef __U_ETHER_H
 #define __U_ETHER_H
 
@@ -30,6 +38,11 @@
 
 #include "gadget_chips.h"
 
+#undef USB_ANDROID_NCM
+#ifdef CONFIG_FEATURE_NCMC_USB
+#define USB_ANDROID_NCM
+#define USE_ETHER_XMIT_FOR_NCM
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 /*
  * This represents the USB side of an "ethernet" link, managed by a USB
@@ -78,6 +91,10 @@ struct gether {
 	/* called on network open/close */
 	void				(*open)(struct gether *);
 	void				(*close)(struct gether *);
+#ifdef USB_ANDROID_NCM
+	struct net_device*		net;
+	atomic_t			pending_writes;	
+#endif /* USB_ANDROID_NCM */
 };
 
 #define	DEFAULT_FILTER	(USB_CDC_PACKET_TYPE_BROADCAST \
@@ -131,5 +148,50 @@ rndis_bind_config(struct usb_configuration *c, u8 ethaddr[ETH_ALEN],
 }
 
 #endif
+
+#ifdef USB_ANDROID_NCM
+
+#ifndef USE_ETHER_XMIT_FOR_NCM
+#else
+netdev_tx_t eth_start_xmit(struct sk_buff *skb,
+					struct net_device *net);
+#endif
+
+struct eth_dev {
+	/* lock is held while accessing port_usb
+	 * or updating its backlink port_usb->ioport
+	 */
+	spinlock_t		lock;
+	struct gether		*port_usb;
+
+	struct net_device	*net;
+	struct usb_gadget	*gadget;
+
+	spinlock_t		req_lock;	/* guard {rx,tx}_reqs */
+	struct list_head	tx_reqs, rx_reqs;
+#define TX_REQ_THRESHOLD        5   //RaghuDP:    from 1.5.40
+        int                     no_tx_req_used;
+        int                     tx_skb_hold_count;
+        u32                     tx_req_bufsize;
+
+	unsigned		tx_qlen;
+
+	struct sk_buff_head	rx_frames;
+
+	unsigned		header_len;
+	struct sk_buff		*(*wrap)(struct gether *, struct sk_buff *skb);
+	int			(*unwrap)(struct gether *,
+						struct sk_buff *skb,
+						struct sk_buff_head *list);
+
+	struct work_struct	work;
+
+	unsigned long		todo;
+#define	WORK_RX_MEMORY		0
+
+	bool			zlp;
+	u8			host_mac[ETH_ALEN];
+};
+#endif /* USB_ANDROID_NCM */
 
 #endif /* __U_ETHER_H */

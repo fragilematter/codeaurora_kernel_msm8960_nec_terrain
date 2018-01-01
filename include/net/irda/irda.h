@@ -22,6 +22,10 @@
  *     provided "AS-IS" and at no charge.
  *     
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef NET_IRDA_H
 #define NET_IRDA_H
@@ -61,10 +65,22 @@ extern unsigned int irda_debug;
 /* use 0 for production, 1 for verification, >2 for debug */
 #define IRDA_DEBUG_LEVEL 0
 
+
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+#define IRDA_DEBUG(n, args...) \
+/* do {	if (irda_debug >= (n)) */\
+do {	if (4 >= (n)) \
+		printk(KERN_DEBUG args); \
+} while (0)
+#else /* CONFIG_FEATURE_NCMC_IRDA */
+
 #define IRDA_DEBUG(n, args...) \
 do {	if (irda_debug >= (n)) \
 		printk(KERN_DEBUG args); \
 } while (0)
+
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
+
 #define IRDA_ASSERT(expr, func) \
 do { if(!(expr)) { \
 	printk( "Assertion failed! %s:%s:%d %s\n", \

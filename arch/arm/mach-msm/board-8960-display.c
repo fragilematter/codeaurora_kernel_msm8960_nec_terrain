@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -26,13 +30,54 @@
 
 #include "devices.h"
 #include "board-8960.h"
+#include <linux/msm_mdp.h>
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
-#define MSM_FB_PRIM_BUF_SIZE \
-		(roundup((1920 * 1200 * 4), 4096) * 3) /* 4 bpp x 3 pages */
+	#if defined (LCD_DEVICE_D121M_PT)
+	    /* prim = 1280 x 800 x 4(RGBA8888) x 3(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(800, 32)*4*3)
+	#elif defined (LCD_DEVICE_D121F_PT)
+	    /* prim = 1280 x 720 x 4(RGBA8888) x 3(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(720, 32)*4*3)
+	#elif defined (LCD_DEVICE_G121S_PT)
+	    /* prim = 1280 x 720 x 4(RGBA8888) x 3(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(720, 32)*4*3)
+	#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+		/* prim = 1280 x 720 x 4(RGBA8888) x 3(pages) */
+		#define MSM_FB_PRIM_BUF_SIZE 0xA8C000 /*(1280*ALIGN(720, 32)*4*3)*/
+	#elif defined (LCD_DEVICE_RUBY_PT)
+	    /* prim = 640 x 480 x 4(RGBA8888) x 3(pages) */
+	#define MSM_FB_PRIM_BUF_SIZE (640*ALIGN(452, 32)*4*3)
+	#else
+		#define MSM_FB_PRIM_BUF_SIZE 0x720000
+	#endif
 #else
-#define MSM_FB_PRIM_BUF_SIZE \
-		(roundup((1920 * 1200 * 4), 4096) * 2) /* 4 bpp x 2 pages */
+	#if defined (LCD_DEVICE_D121M_PT)
+	    /* prim = 1280 x 800 x 4(RGBA8888) x 2(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(800, 32)*4*2)
+	#elif defined (LCD_DEVICE_D121F_PT)
+	    /* prim = 1280 x 720 x 4(RGBA8888) x 2(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(720, 32)*4*2)
+	#elif defined (LCD_DEVICE_G121S_PT)
+	    /* prim = 1280 x 720 x 4(RGBA8888) x 2(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(720, 32)*4*2)
+	#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+	    /* prim = 1280 x 720 x 4(RGBA8888) x 2(pages) */
+    	#define MSM_FB_PRIM_BUF_SIZE (1280*ALIGN(720, 32)*4*2)
+	#elif defined (LCD_DEVICE_RUBY_PT)
+	    /* prim = 640 x 480 x 4(RGBA8888) x 2(pages) */
+	#define MSM_FB_PRIM_BUF_SIZE (640*ALIGN(452, 32)*4*2)
+	#else
+		/* prim = 608 x 1024 x 4(bpp) x 2(pages) */
+		#define MSM_FB_PRIM_BUF_SIZE 0x4C0000
+	#endif
+#endif
+
+#ifdef CONFIG_FB_MSM_MIPI_DSI
+
+#define MIPI_DSI_WRITEBACK_SIZE (1280 * 720 * 3 * 2)
+#else
+#define MIPI_DSI_WRITEBACK_SIZE 0
 #endif
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
@@ -62,7 +107,9 @@
 
 #define MDP_VSYNC_GPIO 0
 
-#define MIPI_CMD_NOVATEK_QHD_PANEL_NAME	"mipi_cmd_novatek_qhd"
+#define MIPI_CMD_NT35560_VGA_PANEL_NAME	        "mipi_cmd_nt35560_vga"
+#define MIPI_VIDEO_NT35560_WVGA_PANEL_NAME	"mipi_video_nt35560_wvga"
+#define MIPI_CMD_NOVATEK_QHD_PANEL_NAME	        "mipi_cmd_novatek_qhd"
 #define MIPI_VIDEO_NOVATEK_QHD_PANEL_NAME	"mipi_video_novatek_qhd"
 #define MIPI_VIDEO_TOSHIBA_WSVGA_PANEL_NAME	"mipi_video_toshiba_wsvga"
 #define MIPI_VIDEO_TOSHIBA_WUXGA_PANEL_NAME	"mipi_video_toshiba_wuxga"
@@ -128,6 +175,14 @@ static int msm_fb_detect_panel(const char *name)
 			set_mdp_clocks_for_wuxga();
 			return 0;
 		}
+		if (!strncmp(name,MIPI_CMD_NT35560_VGA_PANEL_NAME ,
+				strnlen(MIPI_CMD_NT35560_VGA_PANEL_NAME ,
+					PANEL_NAME_MAX_LEN)))
+			return 0;
+		if (!strncmp(name, MIPI_VIDEO_NT35560_WVGA_PANEL_NAME,
+				strnlen(MIPI_VIDEO_NT35560_WVGA_PANEL_NAME,
+					PANEL_NAME_MAX_LEN)))
+			return 0;
 #endif
 	}
 
@@ -157,6 +212,7 @@ static struct platform_device msm_fb_device = {
 	.dev.platform_data = &msm_fb_pdata,
 };
 
+#if defined(LCD_DEVICE_D121M_PT) || defined(LCD_DEVICE_D121F_PT) || defined(LCD_DEVICE_G121S_PT) || defined (LCD_DEVICE_TOSHIBA_HD_PT)
 static void mipi_dsi_panel_pwm_cfg(void)
 {
 	int rc;
@@ -200,9 +256,374 @@ static void mipi_dsi_panel_pwm_cfg(void)
 		mipi_dsi_panel_gpio_configured++;
 	}
 }
+#else
+#endif
+
 
 static bool dsi_power_on;
 
+
+/* From START 1.7 Merge */
+
+void dw8402a_lcd_bl_on(void)
+{
+    static int gpio24 = PM8921_GPIO_PM_TO_SYS(24);
+    gpio_set_value_cansleep(gpio24, 1);
+}
+EXPORT_SYMBOL(dw8402a_lcd_bl_on);
+
+void dw8402a_lcd_bl_off(void)
+{
+    static int gpio24 = PM8921_GPIO_PM_TO_SYS(24);
+    gpio_set_value_cansleep(gpio24, 0);
+}
+EXPORT_SYMBOL(dw8402a_lcd_bl_off);
+
+
+
+
+
+
+#if defined(LCD_DEVICE_D121M_PT) || defined(LCD_DEVICE_D121F_PT) || defined(LCD_DEVICE_G121S_PT) || defined (LCD_DEVICE_TOSHIBA_HD_PT) || defined (LCD_DEVICE_RUBY_PT)
+struct lcd_gpio_info {
+	unsigned no;
+	char *name;
+};
+
+#ifndef LCD_DEVICE_RUBY_PT
+static int mipi_dsi_panel_power(int on)
+{
+
+    static struct regulator *vreg_lvs5 = NULL;
+    static struct regulator *vreg_l8   = NULL;
+    int rc;
+    static struct regulator *reg_l2    = NULL;
+    static int gpio36;
+    struct pm_gpio gpio36_param = {
+        .direction = PM_GPIO_DIR_OUT,
+        .output_buffer = PM_GPIO_OUT_BUF_CMOS,
+        .output_value = 1,
+        .pull = PM_GPIO_PULL_NO,
+        .vin_sel = PM_GPIO_VIN_S4,
+        .out_strength = PM_GPIO_STRENGTH_HIGH,
+        .function = PM_GPIO_FUNC_NORMAL,
+        .inv_int_pol = 0,
+        .disable_pin = 0,
+    };
+    static const struct lcd_gpio_info lcd_5v_oe = {78, "lcd_5v_oe"};
+
+    printk(KERN_DEBUG "[In]%s(%d).\n", __func__, on);
+
+    if (reg_l2 == NULL) {
+		/* VREG_L2 */
+		reg_l2 = regulator_get(&msm_mipi_dsi1_device.dev,
+				"dsi_vdda");
+		if (IS_ERR(reg_l2)) {
+	    	pr_debug("%s: VREG_L2 failed\n", __func__);
+		    rc = PTR_ERR(reg_l2);
+		    return rc;
+		}
+
+		rc = regulator_set_voltage(reg_l2, 1200000, 1200000);
+		if (rc) {
+			pr_err("set_voltage l2 failed, rc=%d\n", rc);
+			goto out;
+		}
+
+		rc = regulator_set_optimum_mode(reg_l2, 100000);
+		if (rc < 0) {
+			pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+			goto out;
+		}
+		rc = regulator_enable(reg_l2);
+		if (rc) {
+			pr_err("enable l2 failed, rc=%d\n", rc);
+			goto out;
+		}
+    }
+
+    if (vreg_l8 == NULL) {
+	/* VREG_L8 */
+	vreg_l8 = regulator_get(NULL, "8921_l8");
+	if (IS_ERR(vreg_l8)) {
+	    pr_debug("%s: VREG_L8 failed\n", __func__);
+	    rc = PTR_ERR(vreg_l8);
+	    return rc;
+	}
+
+	rc = regulator_set_voltage(vreg_l8, 2800000, 2800000);
+	if (rc) {
+	    printk("[reiji]vreg_l8 set voltage failed.\n");
+	    goto out;
+	}
+
+	rc = regulator_enable(vreg_l8);
+	if (rc) {
+	    printk("[reiji]vreg_l8 enable failed\n");
+	    goto out;
+	}
+    }
+
+    if (vreg_lvs5 == NULL) {
+	/* VREG_LVS5 */
+	vreg_lvs5 = regulator_get(NULL, "8921_lvs5");
+	if (IS_ERR(vreg_lvs5)) {
+	    pr_debug("%s: VREG_LVS5 failed\n", __func__);
+	    rc = PTR_ERR(vreg_lvs5);
+	    return rc;
+	}
+
+	rc = regulator_enable(vreg_lvs5);
+	if (rc) {
+	    printk("[reiji]vreg_lvs5 enable failed\n");
+	    goto out;
+	}
+
+	msleep(11);
+
+	gpio36 = PM8921_GPIO_PM_TO_SYS(36);
+	rc = gpio_request(gpio36, "disp_rst_n");
+	if (rc)
+	  {
+	      pr_err("request gpio 43 failed, rc=%d\n", rc);
+	      return -ENODEV;
+	  }
+
+	rc = pm8xxx_gpio_config(gpio36, &gpio36_param);
+	if (rc)
+	  {
+	      pr_err("gpio_config 36 failed (1), rc=%d\n", rc);
+	      return -EINVAL;
+	  }
+
+	rc = gpio_direction_output(gpio36, 1);
+	if (rc) {
+	    printk("[reiji]gpio36 output failed.\n");
+	}
+	msleep(11);
+
+	rc = gpio_request(lcd_5v_oe.no, lcd_5v_oe.name);
+	if (rc) {
+	    pr_err("%s: gpio_request(%s.%d) failed\n",
+		   __func__, lcd_5v_oe.name, lcd_5v_oe.no);
+	    //goto out;
+	}
+	rc = gpio_direction_output(lcd_5v_oe.no, 1);
+	if (rc) {
+	    pr_err("%s: gpio_direction_output(%s.%d) failed\n",
+		   __func__, lcd_5v_oe.name, lcd_5v_oe.no);
+	    //goto out;
+	}
+	msleep(11);
+    }
+
+
+    if (on) {
+	gpio_set_value(lcd_5v_oe.no, 1);
+	msleep(11);
+    } else {
+	gpio_set_value(lcd_5v_oe.no, 0);
+	msleep(11);
+    }
+
+    printk(KERN_DEBUG "[Out]%s.\n", __func__);
+    return 0;
+
+out:
+    if (reg_l2) {
+        if (regulator_is_enabled(reg_l2)) {
+            regulator_disable(reg_l2);
+        }
+        regulator_put(reg_l2);
+    }
+
+    if (vreg_lvs5) {
+        if (regulator_is_enabled(vreg_lvs5)) {
+            regulator_disable(vreg_lvs5);
+        }
+        regulator_put(vreg_lvs5);
+    }
+
+    if (vreg_l8) {
+        if (regulator_is_enabled(vreg_l8)) {
+            regulator_disable(vreg_l8);
+        }
+        regulator_put(vreg_l8);
+    }
+
+    /*vreg_l0a = NULL;*/
+    reg_l2 = NULL;
+    vreg_lvs5 = NULL;
+    vreg_l8 = NULL;
+    return rc;
+}
+#else
+static int mipi_dsi_panel_power(int on)
+{
+	static struct regulator *vreg_lvs5 = NULL;
+	static struct regulator *vreg_l8   = NULL;
+	static struct regulator *vreg_l2   = NULL;
+	int rc;
+	static int gpio36;
+	struct pm_gpio gpio36_param = {
+		.direction = PM_GPIO_DIR_OUT,
+		.output_buffer = PM_GPIO_OUT_BUF_CMOS,
+		.output_value = 1,
+		.pull = PM_GPIO_PULL_NO,
+		.vin_sel = PM_GPIO_VIN_S4,
+		.out_strength = PM_GPIO_STRENGTH_HIGH,
+		.function = PM_GPIO_FUNC_NORMAL,
+		.inv_int_pol = 0,
+		.disable_pin = 0,
+	};
+
+	printk(KERN_DEBUG "[In]%s(%d).\n", __func__, on);
+
+	if(!dsi_power_on) {
+		if (vreg_l2 == NULL) {
+			/* VREG_L2 */
+			vreg_l2 = regulator_get(&msm_mipi_dsi1_device.dev,
+				"dsi_vdda");
+			if (IS_ERR(vreg_l2)) {
+				pr_debug("%s: VREG_L2 failed\n", __func__);
+				rc = PTR_ERR(vreg_l2);
+				return rc;
+			}
+
+			rc = regulator_set_voltage(vreg_l2, 1200000, 1200000);
+			if (rc) {
+				pr_err("set_voltage l2 failed, rc=%d\n", rc);
+				goto out;
+			}
+
+			rc = regulator_set_optimum_mode(vreg_l2, 100000);
+			if (rc < 0) {
+				pr_err("set_optimum_mode l2 failed, rc=%d\n", rc);
+				goto out;
+			}
+		}
+		if (vreg_l8 == NULL) {
+			/* VREG_L8 */
+			vreg_l8 = regulator_get(NULL, "8921_l8");
+			if (IS_ERR(vreg_l8)) {
+				pr_debug("%s: VREG_L8 failed\n", __func__);
+					rc = PTR_ERR(vreg_l8);
+					return rc;
+			}
+
+			rc = regulator_set_voltage(vreg_l8, 2800000, 2800000);
+			if (rc) {
+				printk("[reiji]vreg_l8 set voltage failed.\n");
+				goto out;
+			}
+		}
+
+		if (vreg_lvs5 == NULL) {
+			vreg_lvs5 = regulator_get(NULL, "8921_lvs5");
+			if (IS_ERR(vreg_lvs5)) {
+				pr_debug("%s: VREG_LVS5 failed\n", __func__);
+				rc = PTR_ERR(vreg_lvs5);
+				return rc;
+			}
+		}
+
+		gpio36 = PM8921_GPIO_PM_TO_SYS(36);
+		rc = gpio_request(gpio36, "disp_rst_n");
+		if (rc) {
+			pr_err("request gpio 43 failed, rc=%d\n", rc);
+			return -ENODEV;
+		}
+
+		rc = pm8xxx_gpio_config(gpio36, &gpio36_param);
+		if (rc) {
+			pr_err("gpio_config 36 failed (1), rc=%d\n", rc);
+			return -EINVAL;
+		}
+		dsi_power_on=1;
+	}
+
+	if(on) {
+		rc = regulator_enable(vreg_l2);
+		if (rc) {
+			pr_err("enable l2 failed, rc=%d\n", rc);
+			goto out;
+		}
+		rc = regulator_enable(vreg_l8);
+		if (rc) {
+			printk("[reiji]vreg_l8 enable failed\n");
+			goto out;
+		}
+
+		rc = regulator_enable(vreg_lvs5);
+		if (rc) {
+			printk("[reiji]vreg_lvs5 enable failed\n");
+			goto out;
+		}
+
+		msleep(20);
+
+		rc = gpio_direction_output(gpio36, 0);
+		if (rc) {
+			printk("[reiji]gpio36 output failed.\n");
+		}
+
+		rc = gpio_direction_output(gpio36, 1);
+		if (rc) {
+			printk("[reiji]gpio36 output failed.\n");
+		}
+		msleep(120);
+	}
+	else {
+		rc = regulator_disable(vreg_l2);
+		if (rc) {
+			printk("[reiji]vreg_l2 enable failed\n");
+			goto out;
+		}
+
+		rc = gpio_direction_output(gpio36, 0);
+		if (rc) {
+			printk("[reiji]gpio36 output failed.\n");
+		}
+
+		msleep(10);
+
+		rc = regulator_disable(vreg_lvs5);
+		if (rc) {
+			printk("[reiji]vreg_lvs5 enable failed\n");
+			goto out;
+		}
+
+		rc = regulator_disable(vreg_l8);
+		if (rc) {
+			printk("[reiji]vreg_l8 enable failed\n");
+			goto out;
+		}
+	}
+	printk(KERN_DEBUG "[Out]%s.\n", __func__);
+	return 0;
+
+out:
+	if (vreg_lvs5) {
+		if (regulator_is_enabled(vreg_lvs5)) {
+			regulator_disable(vreg_lvs5);
+		}
+		regulator_put(vreg_lvs5);
+	}
+
+	if (vreg_l8) {
+		if (regulator_is_enabled(vreg_l8)) {
+			regulator_disable(vreg_l8);
+		}
+		regulator_put(vreg_l8);
+	}
+
+	vreg_lvs5 = NULL;
+	vreg_l8 = NULL;
+	return rc;
+}
+#endif
+
+#else
 /**
  * LiQUID panel on/off
  *
@@ -456,6 +877,7 @@ static int mipi_dsi_panel_power(int on)
 
 	return ret;
 }
+#endif
 
 static struct mipi_dsi_platform_data mipi_dsi_pdata = {
 	.vsync_gpio = MDP_VSYNC_GPIO,
@@ -658,16 +1080,65 @@ static struct msm_bus_scale_pdata mdp_bus_scale_pdata = {
 
 #endif
 
-static int mdp_core_clk_rate_table[] = {
+#ifdef CONFIG_FB_MSM_MIPI_DSI
+int mdp_core_clk_rate_table[] = {
+#if defined (LCD_DEVICE_D121M_PT)
+	128000000,
+	160000000,
+	177780000,
+	200000000,
+#elif defined (LCD_DEVICE_D121F_PT)
+	128000000,
+	160000000,
+	177780000,
+	200000000,
+#elif defined (LCD_DEVICE_G121S_PT)
+	128000000,
+	160000000,
+	177780000,
+	200000000,
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+	128000000,
+	160000000,
+	177780000,
+	200000000,
+#elif defined (LCD_DEVICE_RUBY_PT)
+	128000000,
+	160000000,
+	177780000,
+	200000000,
+#else /* !CONFIG_FB_MSM_MIPI_NCMC_VIDEO_HD_PT_PANEL_DB */
 	85330000,
 	128000000,
 	160000000,
 	200000000,
+#endif /* !CONFIG_FB_MSM_MIPI_NCMC_VIDEO_HD_PT_PANEL_DB */
 };
+#else
+static int mdp_core_clk_rate_table[] = {
+	85330000,
+	128000000,
+	128000000,
+	200000000,
+	200000000,
+};
+#endif
 
 static struct msm_panel_common_pdata mdp_pdata = {
 	.gpio = MDP_VSYNC_GPIO,
+#if defined (LCD_DEVICE_D121M_PT)
+	.mdp_core_clk_rate = 128000000,
+#elif defined (LCD_DEVICE_D121F_PT)
+	.mdp_core_clk_rate = 128000000,
+#elif defined (LCD_DEVICE_G121S_PT)
+	.mdp_core_clk_rate = 128000000,
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+	.mdp_core_clk_rate = 128000000,
+#elif defined (LCD_DEVICE_RUBY_PT)
+	.mdp_core_clk_rate = 128000000,
+#else
 	.mdp_core_clk_rate = 85330000,
+#endif /* !CONFIG_FB_MSM_MIPI_NCMC_VIDEO_HD_PT_PANEL_DB */
 	.mdp_core_clk_table = mdp_core_clk_rate_table,
 	.num_mdp_clk = ARRAY_SIZE(mdp_core_clk_rate_table),
 #ifdef CONFIG_MSM_BUS_SCALING
@@ -679,7 +1150,8 @@ static struct msm_panel_common_pdata mdp_pdata = {
 #else
 	.mem_hid = MEMTYPE_EBI1,
 #endif
-	.cont_splash_enabled = 0x01,
+	//.cont_splash_enabled = 0x01,
+	.cont_splash_enabled = 0x00,	
 };
 
 #ifndef CONFIG_FB_MSM_MIPI_PANEL_DETECT
@@ -720,41 +1192,45 @@ void __init msm8960_mdp_writeback(struct memtype_reserve* reserve_table)
 #endif
 }
 
+
+#if defined (LCD_DEVICE_D121M_PT)
 static struct platform_device mipi_dsi_renesas_panel_device = {
-	.name = "mipi_renesas",
+	.name = "mipi_renesas_d121m",
 	.id = 0,
 };
+#elif defined (LCD_DEVICE_D121F_PT)
+static struct platform_device mipi_dsi_renesas_panel_device = {
+	.name = "mipi_renesas_d121f",
+	.id = 0,
+};
+#elif defined (LCD_DEVICE_G121S_PT)
+static struct platform_device mipi_dsi_renesas_panel_device = {
+	.name = "mipi_renesas_g121s",
+	.id = 0,
+};
+#else
+static struct platform_device mipi_dsi_renesas_panel_device = {
+	.name = "mipi_renesas_hd",
+	.id = 0,
+};
+#endif
 
 static struct platform_device mipi_dsi_simulator_panel_device = {
 	.name = "mipi_simulator",
 	.id = 0,
 };
 
-#define LPM_CHANNEL0 0
-static int toshiba_gpio[] = {LPM_CHANNEL0};
-
-static struct mipi_dsi_panel_platform_data toshiba_pdata = {
-	.gpio = toshiba_gpio,
-	.dsi_pwm_cfg = mipi_dsi_panel_pwm_cfg,
-};
-
-static struct platform_device mipi_dsi_toshiba_panel_device = {
-	.name = "mipi_toshiba",
+#ifdef CONFIG_FB_MSM_MIPI_DSI_NT35560
+static struct platform_device mipi_dsi_nt35560_panel_device = {
+	.name = "mipi_nt35560",
 	.id = 0,
-	.dev = {
-		.platform_data = &toshiba_pdata,
-	}
 };
+#else
+
+#endif /* NT35560 MIPI DSI  */
 
 #define FPGA_3D_GPIO_CONFIG_ADDR	0xB5
-static int dsi2lvds_gpio[2] = {
-	0,/* Backlight PWM-ID=0 for PMIC-GPIO#24 */
-	0x1F08 /* DSI2LVDS Bridge GPIO Output, mask=0x1f, out=0x08 */
-	};
 
-static struct msm_panel_common_pdata mipi_dsi2lvds_pdata = {
-	.gpio_num = dsi2lvds_gpio,
-};
 
 static struct mipi_dsi_phy_ctrl dsi_novatek_cmd_mode_phy_db = {
 
@@ -785,11 +1261,6 @@ static struct platform_device mipi_dsi_novatek_panel_device = {
 	}
 };
 
-static struct platform_device mipi_dsi2lvds_bridge_device = {
-	.name = "mipi_tc358764",
-	.id = 0,
-	.dev.platform_data = &mipi_dsi2lvds_pdata,
-};
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 static struct resource hdmi_msm_resources[] = {
@@ -851,44 +1322,6 @@ static struct platform_device wfd_device = {
 #endif
 
 #ifdef CONFIG_MSM_BUS_SCALING
-static struct msm_bus_vectors dtv_bus_init_vectors[] = {
-	{
-		.src = MSM_BUS_MASTER_MDP_PORT0,
-		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab = 0,
-		.ib = 0,
-	},
-};
-
-static struct msm_bus_vectors dtv_bus_def_vectors[] = {
-	{
-		.src = MSM_BUS_MASTER_MDP_PORT0,
-		.dst = MSM_BUS_SLAVE_EBI_CH0,
-		.ab = 566092800 * 2,
-		.ib = 707616000 * 2,
-	},
-};
-
-static struct msm_bus_paths dtv_bus_scale_usecases[] = {
-	{
-		ARRAY_SIZE(dtv_bus_init_vectors),
-		dtv_bus_init_vectors,
-	},
-	{
-		ARRAY_SIZE(dtv_bus_def_vectors),
-		dtv_bus_def_vectors,
-	},
-};
-static struct msm_bus_scale_pdata dtv_bus_scale_pdata = {
-	dtv_bus_scale_usecases,
-	ARRAY_SIZE(dtv_bus_scale_usecases),
-	.name = "dtv",
-};
-
-static struct lcdc_platform_data dtv_pdata = {
-	.bus_scale_table = &dtv_bus_scale_pdata,
-	.lcdc_power_save = hdmi_panel_power,
-};
 
 static int hdmi_panel_power(int on)
 {
@@ -1116,11 +1549,11 @@ void __init msm8960_init_fb(void)
 		platform_device_register(&hdmi_msm_device);
 #endif
 	}
-
-	if (machine_is_msm8960_liquid())
-		platform_device_register(&mipi_dsi2lvds_bridge_device);
-	else
+	#ifdef CONFIG_FB_MSM_MIPI_DSI_NT35560
+		platform_device_register(&mipi_dsi_nt35560_panel_device);
+	#else
 		platform_device_register(&mipi_dsi_toshiba_panel_device);
+	#endif /* NT35560 MIPI DSI */
 
 	if (machine_is_msm8x60_rumi3()) {
 		msm_fb_register_device("mdp", NULL);
@@ -1129,7 +1562,6 @@ void __init msm8960_init_fb(void)
 		msm_fb_register_device("mdp", &mdp_pdata);
 	msm_fb_register_device("mipi_dsi", &mipi_dsi_pdata);
 #ifdef CONFIG_MSM_BUS_SCALING
-	msm_fb_register_device("dtv", &dtv_pdata);
 #endif
 }
 

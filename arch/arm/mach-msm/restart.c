@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -44,14 +48,27 @@
 
 #define RESTART_REASON_ADDR 0x65C
 #define DLOAD_MODE_ADDR     0x0
+#define IMEM_FATAL_FLG_ADDR 0x934
 
 #define SCM_IO_DISABLE_PMIC_ARBITER	1
+
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
+
+int ncmc_get_fatal_mode(void);
+
 
 static int restart_mode;
 void *restart_reason;
 
 int pmic_reset_irq;
 static void __iomem *msm_tmr0_base;
+static void *imem_fatal_flg_addr = NULL;
 
 #ifdef CONFIG_MSM_DLOAD_MODE
 static int in_panic;
@@ -74,8 +91,48 @@ static struct notifier_block panic_blk = {
 	.notifier_call	= panic_prep_restart,
 };
 
-static void set_dload_mode(int on)
+void ncmc_set_fatal_flg(unsigned int fatal_flag)
 {
+    if (imem_fatal_flg_addr) {
+        writel(fatal_flag, imem_fatal_flg_addr);
+        mb();
+    }
+	return;
+}
+EXPORT_SYMBOL(ncmc_set_fatal_flg);
+
+unsigned int ncmc_get_fatal_flg(void)
+{
+    unsigned int    fatal_flag = 0;
+
+    if (imem_fatal_flg_addr) {
+        fatal_flag = readl(imem_fatal_flg_addr);
+        mb();
+    }
+	return fatal_flag;
+}
+EXPORT_SYMBOL(ncmc_get_fatal_flg);
+
+void set_dload_mode(int on)
+{
+#ifdef  CONFIG_OEM_CH_NORMAL_RELEASE
+#else   // CONFIG_OEM_CH_NORMAL_RELEASE
+    int     mode = OEM_NCMC_FATAL_MODE_INIT;
+
+    if ( on != 0 )
+    {
+        mode = ncmc_get_fatal_mode();
+        if ( mode == OEM_NCMC_FATAL_MODE_APPS
+        ||   mode == OEM_NCMC_FATAL_MODE_MODEM
+        ||   mode == OEM_NCMC_FATAL_MODE_DSP
+        ||   mode == OEM_NCMC_FATAL_MODE_LPASS
+        ||   mode == OEM_NCMC_FATAL_MODE_RIVA
+        ||   in_panic )
+        {
+            return;
+        }
+    }
+#endif  // CONFIG_OEM_CH_NORMAL_RELEASE
 	if (dload_mode_addr) {
 		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
 		__raw_writel(on ? 0xCE14091A : 0,
@@ -83,6 +140,7 @@ static void set_dload_mode(int on)
 		mb();
 	}
 }
+EXPORT_SYMBOL(set_dload_mode);
 
 static int dload_set(const char *val, struct kernel_param *kp)
 {
@@ -132,6 +190,8 @@ static void __msm_power_off(int lower_pshold)
 
 static void msm_power_off(void)
 {
+	__raw_writel(0, restart_reason);
+
 	/* MSM initiated power off, lower ps_hold */
 	__msm_power_off(1);
 }
@@ -185,8 +245,10 @@ void arch_reset(char mode, const char *cmd)
 	/* This looks like a normal reboot at this point. */
 	set_dload_mode(0);
 
+#ifdef  CONFIG_OEM_CH_NORMAL_RELEASE
 	/* Write download mode flags if we're panic'ing */
 	set_dload_mode(in_panic);
+#endif  // CONFIG_OEM_CH_NORMAL_RELEASE
 
 	/* Write download mode flags if restart_mode says so */
 	if (restart_mode == RESTART_DLOAD)
@@ -241,11 +303,12 @@ static int __init msm_restart_init(void)
 	dload_mode_addr = MSM_IMEM_BASE + DLOAD_MODE_ADDR;
 
 	/* Reset detection is switched on below.*/
-	set_dload_mode(1);
+	set_dload_mode(0);
 #endif
 	msm_tmr0_base = msm_timer_get_timer0_base();
 	restart_reason = MSM_IMEM_BASE + RESTART_REASON_ADDR;
 	pm_power_off = msm_power_off;
+    imem_fatal_flg_addr = MSM_IMEM_BASE + IMEM_FATAL_FLG_ADDR;
 
 	if (pmic_reset_irq != 0) {
 		rc = request_any_context_irq(pmic_reset_irq,

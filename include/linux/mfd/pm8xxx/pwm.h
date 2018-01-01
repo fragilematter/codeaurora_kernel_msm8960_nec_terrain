@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __PM8XXX_PWM_H__
 #define __PM8XXX_PWM_H__
@@ -137,6 +142,15 @@ int pm8xxx_pwm_lut_config(struct pwm_device *pwm, int period_us,
  * @start: to start (1), or stop (0)
  */
 int pm8xxx_pwm_lut_enable(struct pwm_device *pwm, int start);
+
+#ifdef CONFIG_INPUT_ANALOGDEVICE_ADUX1001_NCM
+/**
+ * pm8xxx_pwm_haptics_config - set-up a PWM device config that supported haptics device.
+ * @pwm: the PWM device
+ * @pwm_value: amplitude of vibration. (Value: 0 to 64)
+ */
+int pm8xxx_pwm_haptics_config( struct pwm_device *pwm, int pwm_value, int period_us );
+#endif /* CONFIG_INPUT_ANALOGDEVICE_ADUX1000_NCM */
 
 /* Standard APIs supported */
 /**

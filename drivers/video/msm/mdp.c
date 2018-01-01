@@ -14,6 +14,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -65,6 +69,10 @@ uint32 mdp_lcdc_underflow_cnt;
 
 boolean mdp_current_clk_on = FALSE;
 boolean mdp_is_in_isr = FALSE;
+
+/* ADD-S S_DRV_LCD */
+extern boolean msm_fb_disable_sleep;
+/* ADD-E S_DRV_LCD */
 
 /*
  * legacy mdp_in_processing is only for DMA2-MDDI
@@ -1386,9 +1394,6 @@ void mdp_pipe_kickoff(uint32 term, struct msm_fb_data_type *mfd)
 		/* DMA update timestamp */
 		mdp_dma2_last_update_time = ktime_get_real();
 		/* let's turn on DMA2 block */
-#if 0
-		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-#endif
 #ifdef CONFIG_FB_MSM_MDP22
 		outpdw(MDP_CMD_DEBUG_ACCESS_BASE + 0x0044, 0x0);/* start DMA */
 #else
@@ -2650,6 +2655,14 @@ static void mdp_suspend_sub(void)
 #if defined(CONFIG_PM) && !defined(CONFIG_HAS_EARLYSUSPEND)
 static int mdp_suspend(struct platform_device *pdev, pm_message_t state)
 {
+	/* ADD-S S_DRV_LCD */
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n", __func__);
+		return 0;
+	}
+	/* ADD-E S_DRV_LCD */
+	
 	if (pdev->id == 0) {
 		mdp_suspend_sub();
 		if (mdp_current_clk_on) {
@@ -2665,6 +2678,14 @@ static int mdp_suspend(struct platform_device *pdev, pm_message_t state)
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void mdp_early_suspend(struct early_suspend *h)
 {
+	/* ADD-S S_DRV_LCD */
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n", __func__);
+		return ;
+	}
+	/* ADD-E S_DRV_LCD */
+	
 	mdp_suspend_sub();
 #ifdef CONFIG_FB_MSM_DTV
 	mdp4_dtv_set_black_screen();

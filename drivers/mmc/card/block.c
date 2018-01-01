@@ -17,6 +17,10 @@
  * Author:  Andrew Christian
  *          28 May 2002
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/moduleparam.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -43,6 +47,11 @@
 
 #include <asm/system.h>
 #include <asm/uaccess.h>
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#include <linux/spinlock.h>
+#include "../core/core.h"
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 #include "queue.h"
 
@@ -76,6 +85,21 @@ static int max_devices;
 /* 256 minors, so at most 256 separate devices */
 static DECLARE_BITMAP(dev_use, 256);
 static DECLARE_BITMAP(name_use, 256);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+
+#define MMC_MAX_ERROR_COUNT	3
+
+static int sd_err_count = 0;
+static int g_is_err_occur = 0;
+static spinlock_t err_data_spin_lock
+		= __SPIN_LOCK_UNLOCKED(err_data_spin_lock);
+static int pending_set_blksize = 0;
+
+static unsigned char *mmc_blk_buf = NULL;
+static volatile unsigned char mmc_blk_buf_flag = 0;
+static spinlock_t mmc_blk_buf_lock
+		= __SPIN_LOCK_UNLOCKED(mmc_blk_buf_lock);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 /*
  * There is one mmc_blk_data per slot.
@@ -106,8 +130,148 @@ struct mmc_blk_data {
 
 static DEFINE_MUTEX(open_lock);
 
+#ifdef CONFIG_FEATURE_NCMC_MTD_LOCK
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M)
+#define DEVICE_EMMC                 "mmc0"
+#define EMMC_LOCK_OK                0
+#define EMMC_LOCK_NG                -1
+#define EMMC_LOCK_PARTITION_NUM     10
+
+struct emmc_lock_info_t {
+	unsigned int  part_num;
+	uint64_t      first_lba;
+	uint64_t      last_lba;
+};
+
+#if defined(CONFIG_FEATURE_NCMC_D121F)
+const struct emmc_lock_info_t emmc_lock_info[EMMC_LOCK_PARTITION_NUM] = {
+{1,0x0000000000008000,0x0000000000047FFF,},  /* modem */
+{4,0x0000000000090000,0x00000000000901FF,},  /* sbl1 */
+{5,0x0000000000090200,0x00000000000903FF,},  /* sbl2 */
+{6,0x0000000000090400,0x00000000000913FF,},  /* sbl3 */
+{7,0x0000000000091400,0x0000000000091BFF,},  /* aboot */
+{8,0x0000000000091C00,0x0000000000091FFF,},  /* rpm */
+{9,0x0000000000092000,0x0000000000096FFF,},  /* boot */
+{10,0x0000000000097000,0x00000000000973FF,},  /* tz */
+{11,0x0000000000097400,0x000000000009C3FF,},  /* recovery */
+{12,0x000000000009C400,0x00000000002AC3FF,},  /* system */
+};
+#endif
+
+#if defined(CONFIG_FEATURE_NCMC_D121M)
+const struct emmc_lock_info_t emmc_lock_info[EMMC_LOCK_PARTITION_NUM] = {
+{1,0x0000000000008000,0x0000000000047FFF,},  /* modem */
+{4,0x0000000000090000,0x00000000000901FF,},  /* sbl1 */
+{5,0x0000000000090200,0x00000000000903FF,},  /* sbl2 */
+{6,0x0000000000090400,0x00000000000913FF,},  /* sbl3 */
+{7,0x0000000000091400,0x0000000000091BFF,},  /* aboot */
+{8,0x0000000000091C00,0x0000000000091FFF,},  /* rpm */
+{9,0x0000000000092000,0x0000000000096FFF,},  /* boot */
+{10,0x0000000000097000,0x00000000000973FF,},  /* tz */
+{11,0x0000000000097400,0x000000000009C3FF,},  /* recovery */
+{12,0x000000000009C400,0x00000000002AC3FF,},  /* system */
+};
+#endif
+
+
+static int emmc_lock_write_protect_check(u32 sector);
+#endif
+#endif
+
 module_param(perdev_minors, int, 0444);
 MODULE_PARM_DESC(perdev_minors, "Minors numbers to allocate per device");
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+static int get_card_status(struct mmc_card *card, u32 *status, int retries);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+void mmc_err_info_get(int *err_info)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&err_data_spin_lock, flags);
+	*err_info = g_is_err_occur;
+	spin_unlock_irqrestore(&err_data_spin_lock, flags);
+}
+
+void mmc_err_info_set(void)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&err_data_spin_lock, flags);
+	g_is_err_occur = 1;
+	spin_unlock_irqrestore(&err_data_spin_lock, flags);
+}
+
+void mmc_err_info_clear(void)
+{
+	unsigned long flags;
+	spin_lock_irqsave(&err_data_spin_lock, flags);
+	g_is_err_occur = 0;
+	spin_unlock_irqrestore(&err_data_spin_lock, flags);
+}
+
+int mmc_blk_alloc_buf(void)
+{
+	int ret = 0;
+
+	spin_lock(&mmc_blk_buf_lock);
+	if (mmc_blk_buf) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	mmc_blk_buf = kzalloc(MMC_IOC_MAX_BYTES, GFP_KERNEL);
+	if (!mmc_blk_buf) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+out:
+	spin_unlock(&mmc_blk_buf_lock);
+	return ret;
+}
+
+void mmc_blk_free_buf(void)
+{
+	spin_lock(&mmc_blk_buf_lock);
+	while (mmc_blk_buf_flag) {
+		spin_unlock(&mmc_blk_buf_lock);
+		schedule();
+		spin_lock(&mmc_blk_buf_lock);
+	}
+
+	if (mmc_blk_buf) {
+		kfree(mmc_blk_buf);
+		mmc_blk_buf = NULL;
+	}
+	spin_unlock(&mmc_blk_buf_lock);
+}
+
+static unsigned char *mmc_blk_get_buf(void)
+{
+	spin_lock(&mmc_blk_buf_lock);
+	while (mmc_blk_buf) {
+		if (mmc_blk_buf_flag) {
+			spin_unlock(&mmc_blk_buf_lock);
+			schedule();
+			spin_lock(&mmc_blk_buf_lock);
+			continue;
+		}
+		mmc_blk_buf_flag = 1;
+		break;
+	}
+	spin_unlock(&mmc_blk_buf_lock);
+	return mmc_blk_buf;
+}
+
+static void mmc_blk_put_buf(void)
+{
+	spin_lock(&mmc_blk_buf_lock);
+	mmc_blk_buf_flag = 0;
+	memset(mmc_blk_buf, 0, MMC_IOC_MAX_BYTES);
+	spin_unlock(&mmc_blk_buf_lock);
+}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
 {
@@ -224,8 +388,13 @@ struct mmc_blk_ioc_data {
 	u64 buf_bytes;
 };
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
+	struct mmc_ioc_cmd __user *user, struct mmc_card *card)
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
 	struct mmc_ioc_cmd __user *user)
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 {
 	struct mmc_blk_ioc_data *idata;
 	int err;
@@ -247,7 +416,15 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
 		goto idata_err;
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (mmc_card_sd(card)) {
+		idata->buf = mmc_blk_get_buf();
+	} else {
+		idata->buf = kzalloc(idata->buf_bytes, GFP_KERNEL);
+	}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	idata->buf = kzalloc(idata->buf_bytes, GFP_KERNEL);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	if (!idata->buf) {
 		err = -ENOMEM;
 		goto idata_err;
@@ -262,7 +439,15 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
 	return idata;
 
 copy_err:
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (mmc_card_sd(card)) {
+		mmc_blk_put_buf();
+	} else {
+		kfree(idata->buf);
+	}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	kfree(idata->buf);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 idata_err:
 	kfree(idata);
 out:
@@ -280,6 +465,10 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_request mrq = {0};
 	struct scatterlist sg;
 	int err;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	int sd_error = 0;
+	u32 status = 0;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	/*
 	 * The caller must have CAP_SYS_RAWIO, and must be calling this on the
@@ -289,9 +478,28 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	if ((!capable(CAP_SYS_RAWIO)) || (bdev != bdev->bd_contains))
 		return -EPERM;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	md = mmc_blk_get(bdev->bd_disk);
+	if (!md) {
+		return -EINVAL;
+	}
+
+	card = md->queue.card;
+	if (!card || IS_ERR(card)) {
+		err = -ENODEV;
+		goto blk_put;
+	}
+
+	idata = mmc_blk_ioctl_copy_from_user(ic_ptr, card);
+	if (IS_ERR(idata)) {
+		err = PTR_ERR(idata);
+		goto blk_put;
+	}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	idata = mmc_blk_ioctl_copy_from_user(ic_ptr);
 	if (IS_ERR(idata))
 		return PTR_ERR(idata);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	cmd.opcode = idata->ic.opcode;
 	cmd.arg = idata->ic.arg;
@@ -312,6 +520,8 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	mrq.cmd = &cmd;
 	mrq.data = &data;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	md = mmc_blk_get(bdev->bd_disk);
 	if (!md) {
 		err = -EINVAL;
@@ -323,13 +533,31 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		err = PTR_ERR(card);
 		goto cmd_done;
 	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	mmc_claim_host(card->host);
 
 	if (idata->ic.is_acmd) {
 		err = mmc_app_cmd(card->host, card);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (err) {
+			if (mmc_card_sd(card)) {
+				mmc_err_info_get(&sd_error);
+				if (!sd_error) {
+					if (sd_err_count++ >= MMC_MAX_ERROR_COUNT) {
+						pr_err("%s: Error card!!(ioctl acmd)\n", __func__);
+						mmc_err_info_set();
+						mmc_power_off(card->host);
+						sd_err_count = 0;
+					}
+				}
+			}
+			goto cmd_rel_host;
+		}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 		if (err)
 			goto cmd_rel_host;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	}
 
 	/* data.flags must already be set before doing this. */
@@ -352,6 +580,21 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 
 	mmc_wait_for_req(card->host, &mrq);
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (cmd.error || data.error) {
+		if (mmc_card_sd(card)) {
+			mmc_err_info_get(&sd_error);
+			if (!sd_error) {
+				if (sd_err_count++ >= MMC_MAX_ERROR_COUNT) {
+					pr_err("%s: Error card!!(ioctl cmd)\n", __func__);
+					mmc_err_info_set();
+					mmc_power_off(card->host);
+					sd_err_count = 0;
+				}
+			}
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	if (cmd.error) {
 		dev_err(mmc_dev(card->host), "%s: cmd error %d\n",
 						__func__, cmd.error);
@@ -364,6 +607,12 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		err = data.error;
 		goto cmd_rel_host;
 	}
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (mmc_card_sd(card)) {
+		sd_err_count = 0;
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	/*
 	 * According to the SD specs, some commands require a delay after
@@ -385,13 +634,41 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		}
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (idata->ic.write_flag) {
+		pr_debug("%s: Write data size = %u bytes\n",
+				__func__, data.blksz * data.blocks);
+
+		do {
+			err = get_card_status(card, &status, 0);
+			if (err) {
+				pr_err("%s: CMD13 error %d\n", __func__, err);
+				break;
+			}
+
+			pr_debug("%s: CMD13 status 0x%08X\n", __func__, status);
+		} while (!(status & R1_READY_FOR_DATA) ||
+			(R1_CURRENT_STATE(status) == R1_STATE_PRG));
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 cmd_rel_host:
 	mmc_release_host(card->host);
-
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (mmc_card_sd(card)) {
+		mmc_blk_put_buf();
+	} else {
+		kfree(idata->buf);
+	}
+	kfree(idata);
+blk_put:
+	mmc_blk_put(md);
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 cmd_done:
 	mmc_blk_put(md);
 	kfree(idata->buf);
 	kfree(idata);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	return err;
 }
 
@@ -822,6 +1099,15 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_card *card = md->queue.card;
 	struct mmc_blk_request brq;
 	int ret = 1, disable_multi = 0, retry = 0;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	int sd_error = 0;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
+#ifdef CONFIG_FEATURE_NCMC_MTD_LOCK
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M)
+	int emmc_lock_ret = 0;
+#endif
+#endif
 
 	/*
 	 * Reliable writes are used to implement Forced Unit Access and
@@ -885,6 +1171,16 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		} else {
 			brq.cmd.opcode = writecmd;
 			brq.data.flags |= MMC_DATA_WRITE;
+#ifdef CONFIG_FEATURE_NCMC_MTD_LOCK
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M)
+			if (strncmp(mmc_card_id(card), DEVICE_EMMC, sizeof(DEVICE_EMMC)-1) == 0) {
+				emmc_lock_ret = emmc_lock_write_protect_check(brq.cmd.arg);
+				if (emmc_lock_ret != EMMC_LOCK_OK) {
+					goto cmd_err;
+				}
+			}
+#endif
+#endif
 		}
 
 		if (do_rel_wr)
@@ -962,8 +1258,24 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		if (brq.sbc.error || brq.cmd.error || brq.stop.error) {
 			switch (mmc_blk_cmd_recovery(card, req, &brq)) {
 			case ERR_RETRY:
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+				if (mmc_card_sd(card)) {
+					mmc_err_info_get(&sd_error);
+					if (!sd_error) {
+						if (sd_err_count++ < MMC_MAX_ERROR_COUNT) {
+							continue;
+						}
+						pr_err("%s: Retry out.\n", __func__);
+					}
+				} else {
+					if (retry++ < 5) {
+                        continue;
+					}
+				}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 				if (retry++ < 5)
 					continue;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 			case ERR_ABORT:
 			case ERR_NOMEDIUM:
 				goto cmd_abort;
@@ -1014,6 +1326,20 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 				brq.cmd.resp[0], brq.stop.resp[0]);
 
 			if (rq_data_dir(req) == READ) {
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+				if (mmc_card_sd(card)) {
+					mmc_err_info_get(&sd_error);
+					if (!sd_error) {
+						if (sd_err_count++ >= MMC_MAX_ERROR_COUNT) {
+							pr_err("%s: Error card!!(data error)\n",
+									__func__);
+							mmc_err_info_set();
+							mmc_power_off(card->host);
+							sd_err_count = 0;
+						}
+					}
+				}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 				if (brq.data.blocks > 1) {
 					/* Redo read one sector at a time */
 					pr_warning("%s: retrying using single block read\n",
@@ -1042,6 +1368,12 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		spin_lock_irq(&md->lock);
 		ret = __blk_end_request(req, 0, brq.data.bytes_xfered);
 		spin_unlock_irq(&md->lock);
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (mmc_card_sd(card)) {
+			sd_err_count = 0;
+		}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	} while (ret);
 
 	return 1;
@@ -1078,6 +1410,20 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		ret = __blk_end_request(req, -EIO, blk_rq_cur_bytes(req));
 	spin_unlock_irq(&md->lock);
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (mmc_card_sd(card)) {
+		mmc_err_info_get(&sd_error);
+		if (!sd_error) {
+			if (sd_err_count++ >= MMC_MAX_ERROR_COUNT) {
+				pr_err("%s: Error card!!(cmd abort)\n", __func__);
+				mmc_err_info_set();
+				mmc_power_off(card->host);
+				sd_err_count = 0;
+			}
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	return 0;
 }
 
@@ -1089,6 +1435,15 @@ static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 	int ret;
 	struct mmc_blk_data *md = mq->data;
 	struct mmc_card *card = md->queue.card;
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	if (mmc_card_sd(card) && pending_set_blksize) {
+		pending_set_blksize = 0;
+		mmc_blk_set_blksize(md, card);
+	}
+#endif /* CONFIG_MMC_BLOCK_DEFERRED_RESUME */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 #ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 	if (mmc_bus_needs_resume(card->host)) {
@@ -1488,7 +1843,15 @@ static int mmc_blk_resume(struct mmc_card *card)
 
 	if (md) {
 #ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (mmc_card_sd(card)) {
+			pending_set_blksize = 1;
+		} else {
+			mmc_blk_set_blksize(md, card);
+		}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 		mmc_blk_set_blksize(md, card);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 #endif
 
 		/*
@@ -1507,6 +1870,26 @@ static int mmc_blk_resume(struct mmc_card *card)
 #define	mmc_blk_suspend	NULL
 #define mmc_blk_resume	NULL
 #endif
+
+#ifdef CONFIG_FEATURE_NCMC_MTD_LOCK
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M)
+static int emmc_lock_write_protect_check(u32 sector)
+{
+	int cnt;
+
+	for (cnt = 0; cnt < EMMC_LOCK_PARTITION_NUM; cnt++) {
+		if ((emmc_lock_info[cnt].first_lba <= sector) &&
+		    (emmc_lock_info[cnt].last_lba  >= sector)) {
+			printk(KERN_ERR "<<mmc_write emmc lock write error 0x%08llx : %u\n",
+				(uint64_t)sector, emmc_lock_info[cnt].part_num);
+			return EMMC_LOCK_NG;
+		}
+	}
+	return EMMC_LOCK_OK;
+}
+#endif
+#endif
+
 
 static struct mmc_driver mmc_driver = {
 	.drv		= {

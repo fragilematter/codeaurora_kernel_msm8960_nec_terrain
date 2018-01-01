@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -21,6 +25,7 @@
 #include <linux/mfd/pm8xxx/vibrator.h>
 
 #include "../staging/android/timed_output.h"
+#include <linux/pm_obs_api.h>
 
 #define VIB_DRV			0x4A
 
@@ -42,6 +47,9 @@ struct pm8xxx_vib {
 	int state;
 	int level;
 	u8  reg_vib_drv;
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	int min_vib_time;
+#endif
 };
 
 static struct pm8xxx_vib *vib_dev;
@@ -125,13 +133,18 @@ static int pm8xxx_vib_set(struct pm8xxx_vib *vib, int on)
 		rc = pm8xxx_vib_write_u8(vib, val, VIB_DRV);
 		if (rc < 0)
 			return rc;
+		pm_obs_a_vibration(PM_OBS_VIBRATION_MODE, TRUE);
 		vib->reg_vib_drv = val;
 	} else {
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+		vib->min_vib_time = 0;
+#endif
 		val = vib->reg_vib_drv;
 		val &= ~VIB_DRV_SEL_MASK;
 		rc = pm8xxx_vib_write_u8(vib, val, VIB_DRV);
 		if (rc < 0)
 			return rc;
+		pm_obs_a_vibration(PM_OBS_VIBRATION_MODE, FALSE);
 		vib->reg_vib_drv = val;
 	}
 	__dump_vib_regs(vib, "vib_set_end");
@@ -147,6 +160,13 @@ static void pm8xxx_vib_enable(struct timed_output_dev *dev, int value)
 
 retry:
 	spin_lock_irqsave(&vib->lock, flags);
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	if ( vib->min_vib_time != 0 ){
+		spin_unlock_irqrestore(&vib->lock, flags);
+		return;
+	}
+#endif
+
 	if (hrtimer_try_to_cancel(&vib->vib_timer) < 0) {
 		spin_unlock_irqrestore(&vib->lock, flags);
 		cpu_relax();
@@ -158,6 +178,12 @@ retry:
 	else {
 		value = (value > vib->pdata->max_timeout_ms ?
 				 vib->pdata->max_timeout_ms : value);
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+		if ( value < 70){
+			value = 70;
+			vib->min_vib_time = 1;
+		}
+#endif
 		vib->state = 1;
 		hrtimer_start(&vib->vib_timer,
 			      ktime_set(value / 1000, (value % 1000) * 1000000),
@@ -196,6 +222,74 @@ static enum hrtimer_restart pm8xxx_vib_timer_func(struct hrtimer *timer)
 	schedule_work(&vib->work);
 
 	return HRTIMER_NORESTART;
+}
+
+static int pm8xxx_vib_set_volt(struct timed_output_dev *dev, int value)
+{
+	struct pm8xxx_vib *vib = container_of(dev, struct pm8xxx_vib,
+					 timed_dev);
+	unsigned long flags;
+
+	spin_lock_irqsave(&vib->lock, flags);
+
+	if(!value){
+		/* turn-off vibrator */
+		pm8xxx_vib_set(vib, 0);
+		spin_unlock_irqrestore(&vib->lock, flags);
+		return 0;
+	}
+
+	if (value < VIB_MIN_LEVEL_mV ||
+			 value > VIB_MAX_LEVEL_mV){
+		printk(KERN_ERR "%s:value invalid = %d", __func__, value /100);
+		spin_unlock_irqrestore(&vib->lock, flags);
+		return -1;
+	}
+	if(vib->level != (int)(value / 100)){
+		/* turn-off vibrator */
+		pm8xxx_vib_set(vib, 0);
+	}
+	vib->level	= (int)(value / 100);
+	/* turn-on vibrator */
+	pm8xxx_vib_set(vib, 1);
+
+	spin_unlock_irqrestore(&vib->lock, flags);
+	return 0;
+}
+
+static int pm8xxx_vib_get_volt(struct timed_output_dev *dev)
+{
+	struct pm8xxx_vib *vib = container_of(dev, struct pm8xxx_vib,
+							 timed_dev);
+	printk(KERN_INFO "%s:get the value = %d", __func__, vib->level);
+	return (vib->level * 100);
+}
+
+int pm8xxx_vib_set_mode(unsigned char mode)
+{
+    u8 val;
+    unsigned long flags;
+
+    if (vib_dev == NULL) {
+            pr_err("%s: vib_dev is NULL\n", __func__);
+            return -ENODEV;
+    }
+
+    printk(KERN_INFO "%s:set mode = %d", __func__, mode);
+
+    spin_lock_irqsave(&vib_dev->lock, flags);
+
+    pm8xxx_vib_set(vib_dev, 0);
+
+    val = vib_dev->reg_vib_drv;
+    val &= VIB_DRV_EN_MANUAL_MASK;
+    vib_dev->reg_vib_drv = val | (mode & ~VIB_DRV_EN_MANUAL_MASK);
+    
+    pm8xxx_vib_set(vib_dev, 1);
+
+    spin_unlock_irqrestore(&vib_dev->lock, flags);
+
+    return 0;
 }
 
 #ifdef CONFIG_PM
@@ -250,6 +344,8 @@ static int __devinit pm8xxx_vib_probe(struct platform_device *pdev)
 	vib->timed_dev.get_time = pm8xxx_vib_get_time;
 	vib->timed_dev.enable = pm8xxx_vib_enable;
 
+	vib->timed_dev.set_volt = pm8xxx_vib_set_volt;
+	vib->timed_dev.get_volt = pm8xxx_vib_get_volt;
 	__dump_vib_regs(vib, "boot_vib_default");
 
 	/*

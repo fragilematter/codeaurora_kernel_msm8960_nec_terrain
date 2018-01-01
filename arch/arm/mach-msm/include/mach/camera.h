@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __ASM__ARCH_CAMERA_H
 #define __ASM__ARCH_CAMERA_H
@@ -211,6 +215,7 @@ struct msm_camera_csi2_params {
 #define CSI_EMBED_DATA 0x12
 #define CSI_RESERVED_DATA_0 0x13
 #define CSI_YUV422_8  0x1E
+#define CSI_RESERVED_DATA 0x13
 #define CSI_RAW8    0x2A
 #define CSI_RAW10   0x2B
 #define CSI_RAW12   0x2C

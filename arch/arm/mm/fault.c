@@ -8,6 +8,10 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/module.h>
 #include <linux/signal.h>
 #include <linux/mm.h>
@@ -43,6 +47,14 @@
 #define FSR_WRITE		(1 << 11)
 #define FSR_FS4			(1 << 10)
 #define FSR_FS3_0		(15)
+
+/* Exception Major Code for Summery Information */
+//#define DMPFNC_XMJ_UNDEF 0x01000000 /* Undefined Instruction */
+#define DMPFNC_XMJ_PREFE 0x02000000 /* Prefetch Abort        */
+#define DMPFNC_XMJ_DATAA 0x03000000 /* Data Abort            */
+
+unsigned long mAJOR;
+
 
 static inline int fsr_fs(unsigned int fsr)
 {
@@ -165,6 +177,13 @@ __do_kernel_fault(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 		"Unable to handle kernel %s at virtual address %08lx\n",
 		(addr < PAGE_SIZE) ? "NULL pointer dereference" :
 		"paging request", addr);
+        printk(KERN_ERR "[T][ARM]Event:0x38 Info:0x00\n");
+
+        if(mAJOR==DMPFNC_XMJ_PREFE){
+                printk(KERN_ERR "[T][ARM]Event:0x34 Info:0x00\n");
+        }else if(mAJOR==DMPFNC_XMJ_DATAA) {
+                printk(KERN_ERR "[T][ARM]Event:0x35 Info:0x00\n");
+        }
 
 	show_pte(mm, addr);
 	die("Oops", regs, fsr);
@@ -677,6 +696,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	const struct fsr_info *inf = fsr_info + fsr_fs(fsr);
 	struct siginfo info;
 
+        mAJOR=DMPFNC_XMJ_DATAA;
+
 #ifdef CONFIG_EMULATE_DOMAIN_MANAGER_V7
 	if (emulate_domain_manager_data_abort(fsr, addr))
 		return;
@@ -754,6 +775,7 @@ do_PrefetchAbort(unsigned long addr, unsigned int ifsr, struct pt_regs *regs)
 {
 	const struct fsr_info *inf = ifsr_info + fsr_fs(ifsr);
 	struct siginfo info;
+        mAJOR=DMPFNC_XMJ_PREFE;
 
 #ifdef CONFIG_EMULATE_DOMAIN_MANAGER_V7
 	if (emulate_domain_manager_prefetch_abort(ifsr, addr))

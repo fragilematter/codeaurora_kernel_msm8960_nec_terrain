@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __PMIC8XXX_KEYPAD_H__
 #define __PMIC8XXX_KEYPAD_H__
@@ -48,5 +52,11 @@ struct pm8xxx_keypad_platform_data {
 	bool wakeup;
 	bool rep;
 };
+
+
+extern struct pm_gpio nc_kypd_sns_oem[] __devinitdata;
+extern struct pm_gpio nc_kypd_drv_oem[] __devinitdata;
+extern struct pm_gpio nc_kypd_sns[] __devinitdata;
+extern struct pm_gpio nc_kypd_drv[] __devinitdata;
 
 #endif /*__PMIC8XXX_KEYPAD_H__ */

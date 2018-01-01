@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __PMIC8XXX_VIBRATOR_H__
 #define __PMIC8XXX_VIBRATOR_H__
@@ -35,5 +40,6 @@ struct pm8xxx_vibrator_platform_data {
 };
 
 int pm8xxx_vibrator_config(struct pm8xxx_vib_config *vib_config);
+int pm8xxx_vib_set_mode(unsigned char mode);
 
 #endif /* __PMIC8XXX_VIBRATOR_H__ */

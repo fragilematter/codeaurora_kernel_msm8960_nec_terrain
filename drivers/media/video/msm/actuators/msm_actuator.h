@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #ifndef MSM_ACTUATOR_H
 #define MSM_ACTUATOR_H
 
@@ -100,6 +104,7 @@ struct msm_actuator_ctrl_t {
 	struct region_params_t *region_params;
 	uint16_t region_size;
 	struct damping_t *damping[2];
+	struct msm_camera_eeprom_client *eeprom_client;
 	void *user_data;
 	uint32_t vcm_pwd;
 	uint32_t vcm_enable;

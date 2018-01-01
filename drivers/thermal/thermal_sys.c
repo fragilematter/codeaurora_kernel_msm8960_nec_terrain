@@ -22,6 +22,10 @@
  *
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/device.h>
@@ -34,6 +38,9 @@
 #include <linux/reboot.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
+#include <linux/delay.h>
+
+#include <linux/mfd/pm8xxx/tm.h>
 
 MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
@@ -1056,6 +1063,10 @@ void thermal_zone_device_update(struct thermal_zone_device *tz)
 		switch (trip_type) {
 		case THERMAL_TRIP_CRITICAL:
 			if (temp >= trip_temp) {
+				printk( KERN_ERR "[T][ARM]Event:0x39 Info:0x52\n");	
+				msleep(5000);
+				kernel_power_off();
+
 				if (tz->ops->notify)
 					ret = tz->ops->notify(tz, count,
 							      trip_type);
@@ -1068,9 +1079,20 @@ void thermal_zone_device_update(struct thermal_zone_device *tz)
 			}
 			break;
 		case THERMAL_TRIP_HOT:
-			if (temp >= trip_temp)
+			if (temp >= trip_temp) {
+				if (count == 1) { /* Stage2 */
+					printk( KERN_ERR "[T][ARM]Event:0x39 Info:0x51\n");
+					msleep(5000);
+					kernel_power_off();
+				} else if (count == 2) { /* Stage1 */
+					printk( KERN_ERR "[T][ARM]Event:0x39 Info:0x50\n");
+					msleep(5000);
+					kernel_power_off();
+				}
+
 				if (tz->ops->notify)
 					tz->ops->notify(tz, count, trip_type);
+			}
 			break;
 		case THERMAL_TRIP_CONFIGURABLE_HI:
 			if (temp >= trip_temp)

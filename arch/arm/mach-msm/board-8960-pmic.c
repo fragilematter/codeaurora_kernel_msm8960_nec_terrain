@@ -1,4 +1,4 @@
-/* Copyright (c) 2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,14 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
+ */
+
+/*
+ * Copyright (C) 2011 NEC CASIO Mobile Communications, Ltd.
+ *
+ *  No permission to use, copy, modify and distribute this software
+ *  and its documentation for any purpose is granted.
+ *  This software is provided under applicable license agreement only.
  */
 
 #include <linux/interrupt.h>
@@ -23,6 +31,13 @@
 #include "devices.h"
 #include "board-8960.h"
 
+#include <linux/oemnc_info.h>
+
+#ifdef CONFIG_PMIC8XXX_VIBRATOR
+#include <linux/mfd/pm8xxx/vibrator.h>
+#endif /* CONFIG_PMIC8XXX_VIBRATOR */
+
+#ifndef NCM_FUNCTION
 struct pm8xxx_gpio_init {
 	unsigned			gpio;
 	struct pm_gpio			config;
@@ -108,11 +123,55 @@ static struct pm8xxx_mpp_init pm8921_mpps[] __initdata = {
 	PM8XXX_MPP_INIT(PM8XXX_AMUX_MPP_8, A_INPUT, PM8XXX_MPP_AIN_AMUX_CH8,
 								DOUT_CTRL_LOW),
 };
+#endif /* NCM_FUNCTION */
 
 void __init msm8960_pm8921_gpio_mpp_init(void)
 {
 	int i, rc;
 
+#ifdef NCM_FUNCTION
+    uint32_t hw_rev = 0;
+    
+    hw_rev = hw_revision_read();
+  if (hw_rev == HW_REV_5P0) {
+      for (i = 0; i < nc_pm8921_gpios_num; i++) {
+        rc = pm8xxx_gpio_config(nc_pm8921_gpios[i].gpio,
+              &nc_pm8921_gpios[i].config);
+        if (rc) {
+          pr_err("%s: pm8xxx_gpio_config: rc=%d\n", __func__, rc);
+          break;
+        }
+      }
+    
+      for (i = 0; i < nc_pm8921_mpps_num; i++) {
+        rc = pm8xxx_mpp_config(nc_pm8921_mpps[i].mpp,
+              &nc_pm8921_mpps[i].config);
+        if (rc) {
+          pr_err("%s: pm8xxx_mpp_config: rc=%d\n", __func__, rc);
+          break;
+        }
+      }
+  
+  } else {
+      for (i = 0; i < nc_pm8921_gpios_oem_num; i++) {
+        rc = pm8xxx_gpio_config(nc_pm8921_gpios_oem[i].gpio,
+              &nc_pm8921_gpios_oem[i].config);
+        if (rc) {
+          pr_err("%s: pm8xxx_gpio_config: rc=%d\n", __func__, rc);
+          break;
+        }
+      }
+    
+      for (i = 0; i < nc_pm8921_mpps_oem_num; i++) {
+        rc = pm8xxx_mpp_config(nc_pm8921_mpps_oem[i].mpp,
+              &nc_pm8921_mpps_oem[i].config);
+        if (rc) {
+          pr_err("%s: pm8xxx_mpp_config: rc=%d\n", __func__, rc);
+          break;
+        }
+      }
+  }
+#else
 	for (i = 0; i < ARRAY_SIZE(pm8921_gpios); i++) {
 		rc = pm8xxx_gpio_config(pm8921_gpios[i].gpio,
 					&pm8921_gpios[i].config);
@@ -130,8 +189,10 @@ void __init msm8960_pm8921_gpio_mpp_init(void)
 			break;
 		}
 	}
+#endif /* NCM_FUNCTION */
 }
 
+#ifndef NCM_FUNCTION
 static struct pm8xxx_adc_amux pm8xxx_adc_channels_data[] = {
 	{"vcoin", CHANNEL_VCOIN, CHAN_PATH_SCALING2, AMUX_RSV1,
 		ADC_DECIMATION_TYPE2, ADC_SCALE_DEFAULT},
@@ -179,6 +240,7 @@ static struct pm8xxx_adc_platform_data pm8xxx_adc_pdata = {
 	.adc_prop               = &pm8xxx_adc_data,
 	.adc_mpp_base		= PM8921_MPP_PM_TO_SYS(1),
 };
+#endif /* NCM_FUNCTION */
 
 static struct pm8xxx_irq_platform_data pm8xxx_irq_pdata __devinitdata = {
 	.irq_base		= PM8921_IRQ_BASE,
@@ -238,8 +300,51 @@ static struct pm8xxx_keypad_platform_data keypad_data_liquid = {
 static const unsigned int keymap[] = {
 	KEY(0, 0, KEY_VOLUMEUP),
 	KEY(0, 1, KEY_VOLUMEDOWN),
-	KEY(0, 2, KEY_CAMERA_SNAPSHOT),
-	KEY(0, 3, KEY_CAMERA_FOCUS),
+	KEY(0, 2, KEY_B),
+	KEY(0, 3, KEY_Y),
+	KEY(0, 4, KEY_W),
+	KEY(0, 5, KEY_EXCLAMATION),
+
+	KEY(1, 0, KEY_PTT),
+	KEY(1, 1, KEY_SPK),
+	KEY(1, 2, KEY_M),
+	KEY(1, 3, KEY_R),
+	KEY(1, 4, KEY_D),
+	KEY(1, 5, KEY_O),
+
+	KEY(2, 0, KEY_LEFTSHIFT),
+	KEY(2, 1, KEY_COMMA),
+	KEY(2, 2, KEY_C),
+	KEY(2, 3, KEY_Q),
+	KEY(2, 4, KEY_H),
+	KEY(2, 5, KEY_J),
+
+	KEY(3, 0, KEY_LEFTALT),
+	KEY(3, 1, KEY_DOT),
+	KEY(3, 2, KEY_N),
+	KEY(3, 3, KEY_E),
+	KEY(3, 4, KEY_K),
+	KEY(3, 5, KEY_P),
+
+	KEY(4, 0, KEY_BACKSPACE),
+	KEY(4, 1, KEY_MIC),
+	KEY(4, 2, KEY_T),
+	KEY(4, 3, KEY_X),
+	KEY(4, 4, KEY_S),
+	KEY(4, 5, KEY_I),
+
+	KEY(5, 0, KEY_SYM),
+	KEY(5, 1, KEY_SPACE),
+	KEY(5, 2, KEY_V),
+	KEY(5, 3, KEY_Z),
+	KEY(5, 4, KEY_A),
+	KEY(5, 5, KEY_L),
+
+	KEY(6, 0, KEY_ENTER),
+	KEY(6, 1, KEY_QUESTION),
+	KEY(6, 2, KEY_U),
+	KEY(6, 3, KEY_F),
+	KEY(6, 4, KEY_G),
 };
 
 static struct matrix_keymap_data keymap_data = {
@@ -247,6 +352,21 @@ static struct matrix_keymap_data keymap_data = {
 	.keymap         = keymap,
 };
 
+#ifdef NCM_FUNCTION
+static struct pm8xxx_keypad_platform_data keypad_data = {
+  .input_name             = "keypad_8960",
+  .input_phys_device      = "keypad_8960/input0",
+  .num_rows               = 7,
+  .num_cols               = 6,
+  .rows_gpio_start  = PM8921_GPIO_PM_TO_SYS(9),
+  .cols_gpio_start  = PM8921_GPIO_PM_TO_SYS(1),
+  .debounce_ms            = 15,
+  .scan_delay_ms          = 32,
+  .row_hold_ns            = 91500,
+  .wakeup                 = 1,
+  .keymap_data            = &keymap_data,
+};
+#else
 static struct pm8xxx_keypad_platform_data keypad_data = {
 	.input_name             = "keypad_8960",
 	.input_phys_device      = "keypad_8960/input0",
@@ -260,6 +380,7 @@ static struct pm8xxx_keypad_platform_data keypad_data = {
 	.wakeup                 = 1,
 	.keymap_data            = &keymap_data,
 };
+#endif /* NCM_FUNCTION */
 
 static const unsigned int keymap_sim[] = {
 	KEY(0, 0, KEY_7),
@@ -393,7 +514,9 @@ static struct pm8xxx_keypad_platform_data keypad_data_sim = {
 	.wakeup                 = 1,
 	.keymap_data            = &keymap_data_sim,
 };
+#define MAX_VOLTAGE_MV          4200
 
+#ifndef NCM_FUNCTION
 static int pm8921_therm_mitigation[] = {
 	1100,
 	700,
@@ -401,26 +524,34 @@ static int pm8921_therm_mitigation[] = {
 	325,
 };
 
-#define MAX_VOLTAGE_MV		4200
 static struct pm8921_charger_platform_data pm8921_chg_pdata __devinitdata = {
 	.safety_time		= 180,
 	.update_time		= 60000,
 	.max_voltage		= MAX_VOLTAGE_MV,
 	.min_voltage		= 3200,
+    #ifdef CONFIG_FEATURE_NCMC_POWER
+	.resume_voltage_delta	= 300,
+    #else
 	.resume_voltage_delta	= 100,
+    #endif
 	.term_current		= 100,
 	.cool_temp		= 10,
 	.warm_temp		= 40,
 	.temp_check_period	= 1,
+    #if defined(CONFIG_FEATURE_NCMC_ONLY_FOR_PRODUCTION_PROCESS_8960)
+	.max_bat_chg_current	= 1300,
+    #else
 	.max_bat_chg_current	= 1100,
 	.cool_bat_chg_current	= 350,
 	.warm_bat_chg_current	= 350,
+    #endif /* CONFIG_FEATURE_NCMC_ONLY_FOR_PRODUCTION_PROCESS_8960 */
 	.cool_bat_voltage	= 4100,
 	.warm_bat_voltage	= 4100,
 	.thermal_mitigation	= pm8921_therm_mitigation,
 	.thermal_levels		= ARRAY_SIZE(pm8921_therm_mitigation),
 	.rconn_mohm		= 18,
 };
+#endif /* NCM_FUNCTION */
 
 static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 	.priority		= 0,
@@ -437,6 +568,7 @@ static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
 };
 
 #define	PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
+#define	PM8921_LC_LED_MAX_CURRENT_40	40	/* I = 40mA */
 #define	PM8921_LC_LED_LOW_CURRENT	1	/* I = 1mA */
 #define PM8XXX_LED_PWM_PERIOD		1000
 #define PM8XXX_LED_PWM_DUTY_MS		20
@@ -496,8 +628,7 @@ static struct led_info pm8921_led_info[] = {
 		.default_trigger	= "battery-charging",
 	},
 	[1] = {
-		.name			= "led:battery_full",
-		.default_trigger	= "battery-full",
+		.name			= "prevent-peeping-led",
 	},
 };
 
@@ -534,7 +665,7 @@ static struct pm8xxx_led_config pm8921_led_configs[] = {
 	[1] = {
 		.id = PM8XXX_ID_LED_1,
 		.mode = PM8XXX_LED_MODE_PWM1,
-		.max_current = PM8921_LC_LED_MAX_CURRENT,
+		.max_current = PM8921_LC_LED_MAX_CURRENT_40,
 		.pwm_channel = 4,
 		.pwm_period_us = PM8XXX_LED_PWM_PERIOD,
 	},
@@ -561,6 +692,14 @@ static struct pm8xxx_pwm_platform_data pm8xxx_pwm_pdata = {
 	.dtest_channel	= PM8XXX_PWM_DTEST_CHANNEL_NONE,
 };
 
+#ifdef CONFIG_PMIC8XXX_VIBRATOR
+static struct pm8xxx_vibrator_platform_data pm8xxx_vib_pdata = {
+  .initial_vibrate_ms  = 500,
+  .max_timeout_ms = 15000,
+  .level_mV = 3000,
+};
+#endif /* CONFIG_PMIC8XXX_VIBRATOR */
+
 static struct pm8921_platform_data pm8921_platform_data __devinitdata = {
 	.irq_pdata		= &pm8xxx_irq_pdata,
 	.gpio_pdata		= &pm8xxx_gpio_pdata,
@@ -569,13 +708,32 @@ static struct pm8921_platform_data pm8921_platform_data __devinitdata = {
 	.pwrkey_pdata		= &pm8xxx_pwrkey_pdata,
 	.keypad_pdata		= &keypad_data,
 	.misc_pdata		= &pm8xxx_misc_pdata,
+#ifdef NCM_FUNCTION
+#ifndef CONFIG_FEATURE_NCMC_Q89_BRB
+  .regulator_pdatas = nc_msm_pm8921_regulator_pdata_oem,
+#else
+  .regulator_pdatas = nc_msm_pm8921_regulator_pdata,
+#endif /* CONFIG_FEATURE_NCMC_Q89_BRB */
+#else
 	.regulator_pdatas	= msm_pm8921_regulator_pdata,
+#endif /* NCM_FUNCTION */
+#ifdef NCM_FUNCTION
+    .charger_pdata      = &nc_pm8921_chg_pdata,
+#else
 	.charger_pdata		= &pm8921_chg_pdata,
+#endif /* NCM_FUNCTION */
 	.bms_pdata		= &pm8921_bms_pdata,
+#ifdef NCM_FUNCTION
+    .adc_pdata      = &nc_pm8xxx_adc_pdata,
+#else
 	.adc_pdata		= &pm8xxx_adc_pdata,
+#endif /* NCM_FUNCTION */
 	.leds_pdata		= &pm8xxx_leds_pdata,
 	.ccadc_pdata		= &pm8xxx_ccadc_pdata,
 	.pwm_pdata		= &pm8xxx_pwm_pdata,
+#ifdef CONFIG_PMIC8XXX_VIBRATOR
+  	.vibrator_pdata = &pm8xxx_vib_pdata,
+#endif /* CONFIG_PMIC8XXX_VIBRATOR */
 };
 
 static struct msm_ssbi_platform_data msm8960_ssbi_pm8921_pdata __devinitdata = {
@@ -591,7 +749,11 @@ void __init msm8960_init_pmic(void)
 	pmic_reset_irq = PM8921_IRQ_BASE + PM8921_RESOUT_IRQ;
 	msm8960_device_ssbi_pmic.dev.platform_data =
 				&msm8960_ssbi_pm8921_pdata;
+#ifdef NCM_FUNCTION
+  pm8921_platform_data.num_regulators = nc_msm_pm8921_regulator_pdata_len;
+#else
 	pm8921_platform_data.num_regulators = msm_pm8921_regulator_pdata_len;
+#endif /* NCM_FUNCTION */
 
 	/* Simulator supports a QWERTY keypad */
 	if (machine_is_msm8960_sim())

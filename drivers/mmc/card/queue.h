@@ -1,6 +1,10 @@
 #ifndef MMC_QUEUE_H
 #define MMC_QUEUE_H
 
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+#include <linux/wakelock.h>
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
+
 struct request;
 struct task_struct;
 
@@ -17,6 +21,9 @@ struct mmc_queue {
 	char			*bounce_buf;
 	struct scatterlist	*bounce_sg;
 	unsigned int		bounce_sg_len;
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+	struct wake_lock	queue_wlock;
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 };
 
 extern int mmc_init_queue(struct mmc_queue *, struct mmc_card *, spinlock_t *,

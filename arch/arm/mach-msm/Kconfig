@@ -2146,4 +2146,584 @@ config MSM_CACHE_DUMP_ON_PANIC
 	  want to dump the L1 and L2 caches on panic before any flush occurs.
 	  If unsure, say N
 
+# 20110919 [Build system improvements] start.
+# [It depends on each Vender Spec. Start]
+#====================================
+# Definition for OEM Products option
+#====================================
+menu "NCMC Product Option"
+
+# GG1 product.
+config FEATURE_NCMC_GG1
+	bool "FEATURE_NCMC_GG1"
+	default n
+
+# GG2 product.
+config FEATURE_NCMC_GG2
+	bool "FEATURE_NCMC_GG2"
+	default n
+
+# Trigger product.
+config FEATURE_NCMC_TRIGGER
+	bool "FEATURE_NCMC_TRIGGER"
+	default n
+
+# Hammer product.
+config FEATURE_NCMC_HAMMER
+	bool "FEATURE_NCMC_HAMMER"
+	default n
+
+# Turtle product.
+config FEATURE_NCMC_TURTLE
+	bool "FEATURE_NCMC_TURTLE"
+	default n
+
+# Peacock product.
+config FEATURE_NCMC_PEACOCK
+	bool "FEATURE_NCMC_PEACOCK"
+	default n
+
+# Ginga product.
+config FEATURE_NCMC_GINGA
+	bool "FEATURE_NCMC_GINGA"
+	default n
+
+# Sunshine product.
+config FEATURE_NCMC_SUNSHINE
+	bool "FEATURE_NCMC_SUNSHINE"
+	default n
+
+# Gekko product.
+config FEATURE_NCMC_GEKKO
+	bool "FEATURE_NCMC_GEKKO"
+	default n
+
+# Sniper product.
+config FEATURE_NCMC_SNIPER
+	bool "FEATURE_NCMC_SNIPER"
+	default n
+
+# Alex product.
+config FEATURE_NCMC_ALEX
+	bool "FEATURE_NCMC_ALEX"
+	default n
+
+# Elecant slim product.
+config FEATURE_NCMC_ELEGANT_SLIM
+	bool "FEATURE_NCMC_ELEGANT_SLIM"
+	default n
+
+# D121F product.
+config FEATURE_NCMC_D121F
+	bool "FEATURE_NCMC_D121F"
+	default n
+
+# RUBY product.
+config FEATURE_NCMC_RUBY
+        bool "FEATURE_NCMC_RUBY"
+        default n
+
+# D121M product.
+config FEATURE_NCMC_D121M
+	bool "FEATURE_NCMC_D121M"
+	default n
+
+# G121S product.
+config FEATURE_NCMC_G121S
+	bool "FEATURE_NCMC_G121S"
+	default n
+
+# G121T product.
+config FEATURE_NCMC_G121T
+	bool "FEATURE_NCMC_G121T"
+	default n
+
+# G121U product.
+config FEATURE_NCMC_G121U
+	bool "FEATURE_NCMC_G121U"
+	default n
+
+#======================================
+# Definition for only use oem products.
+#======================================
+
+# Only Hammer product.
+config OEM_NCMC_HMR
+	bool "OEM_NCMC_HMR"
+	default n
+
+# Only Elegant slim product.
+config OEM_NCMC_ELEGANT_SLIM
+	bool "OEM_NCMC_ELEGANT_SLIM"
+	default n
+
+# Only Turtle product.
+config OEM_NCMC_TTL
+	bool "OEM_NCMC_TTL"
+	default n
+
+#======================================
+# Definition for typical oem products.
+#======================================
+
+# Typical for NEC products.
+config FEATURE_NCMC_NEC
+	bool "FEATURE_NCMC_NEC"
+	default n
+
+# Typical for CASIO products.
+config FEATURE_NCMC_CASIO
+	bool "FEATURE_NCMC_CASIO"
+	default n
+
+# Typical for HITACHI products.
+config FEATURE_NCMC_HITACHI
+	bool "FEATURE_NCMC_HITACHI"
+	default n
+
+#======================================
+# Definition for typical public carrier.
+#======================================
+
+# Typical for Docomo carrier
+config FEATURE_NCMC_DOCOMO
+	bool "FEATURE_NCMC_DOCOMO"
+	default n
+
+# Typical for KDDI carrier
+config FEATURE_NCMC_KDDI
+	bool "FEATURE_NCMC_KDDI"
+	default n
+
+# Typical for SOFTBANK carrier
+config FEATURE_NCMC_SOFTBANK
+	bool "FEATURE_NCMC_SOFTBANK"
+	default n
+
+#======================================
+# Definition for build type.
+#======================================
+
+# Type factory build 
+config FEATURE_NCMC_ONLY_FOR_PRODUCTION_PROCESS_8960
+	bool "FEATURE_NCMC_ONLY_FOR_PRODUCTION_PROCESS_8960"
+	default n
+
+# Type q89 brb build 
+config FEATURE_NCMC_Q89_BRB
+	bool "FEATURE_NCMC_Q89_BRB"
+	default n
+
+endmenu
+
+#========================================
+# Definition for Hardware Specification.
+#========================================
+
+menu "NCMC Hardware Specification Options"
+
+# Trigger small item
+config NCMC_TRIGGER
+	bool "NCMC_TRIGGER"
+	default n
+
+# Trigger BRB
+config NCMC_TRIGGER_BRB
+	bool "NCMC_TRIGGER_BRB"
+	default n
+
+# MSM Specification
+config FEATURE_NCMC_BSP
+	bool "FEATURE_NCMC_BSP"
+	default n
+
+# LCD Specification
+config FEATURE_NCMC_LCD
+	bool "FEATURE_NCMC_LCD"
+	default n
+
+# SD Card Specification
+config FEATURE_NCMC_SDCARD
+	bool "FEATURE_NCMC_SDCARD"
+	default n
+
+# UIM Specification
+config FEATURE_NCMC_UIM
+	bool "FEATURE_NCMC_UIM"
+	default n
+
+# Camera Specification
+config FEATURE_NCMC_CAMERA
+	bool "FEATURE_NCMC_CAMERA"
+	default n
+
+# Audio Specification
+config FEATURE_NCMC_AUDIO
+	bool "FEATURE_NCMC_AUDIO"
+	default n
+
+# PMIC Specification
+config FEATURE_NCMC_POWER
+	bool "FEATURE_NCMC_POWER"
+	default n
+
+# LED Specification
+config FEATURE_NCMC_LED
+	bool "FEATURE_NCMC_LED"
+	default n
+
+# IrDA Specification
+config FEATURE_NCMC_IR
+	bool "FEATURE_NCMC_IR"
+	default n
+
+# Key Specification
+config FEATURE_NCMC_KEY
+	bool "FEATURE_NCMC_KEY"
+	default n
+
+# Vibrator Specification
+config FEATURE_NCMC_VIB
+	bool "FEATURE_NCMC_VIB"
+	default n
+
+# I2C Bus Specification
+config FEATURE_NCMC_I2C
+	bool "FEATURE_NCMC_I2C"
+	default n
+
+# USB Specification
+config FEATURE_NCMC_USB
+	bool "FEATURE_NCMC_USB"
+	default n
+
+# 6 Axis sensor Specification
+config FEATURE_NCMC_6AXIS_SENSOR
+	bool "FEATURE_NCMC_6AXIS_SENSOR"
+	default n
+
+# Proximity sensor Specification
+config FEATURE_NCMC_PROX_SENSOR
+	bool "FEATURE_NCMC_PROX_SENSOR"
+	default n
+
+# Ambient Light sensor Specification
+config FEATURE_NCMC_AMBLIGHT_SENSOR
+	bool "FEATURE_NCMC_AMBLIGHT_SENSOR"
+	default n
+
+# Temperature sensor Specification
+config FEATURE_NCMC_TEMP_SENSOR
+	bool "FEATURE_NCMC_TEMP_SENSOR"
+	default n
+
+# WLAN Specification
+config FEATURE_NCMC_WLAN
+	bool "FEATURE_NCMC_WLAN"
+	default n
+
+# Bluetooth Specification
+config FEATURE_NCMC_BT
+	bool "FEATURE_NCMC_BT"
+	default n
+
+# Exothermic heat control Specification
+config FEATURE_NCMC_HEAT
+	bool "FEATURE_NCMC_HEAT"
+	default n
+
+# HDMI Specification
+config FEATURE_NCMC_HDMI
+	bool "FEATURE_NCMC_HDMI"
+	default n
+
+# GPS Specification
+config FEATURE_NCMC_GPS
+	bool "FEATURE_NCMC_GPS"
+	default n
+
+# CDMA Specification
+config FEATURE_NCMC_CDMA
+	bool "FEATURE_NCMC_CDMA"
+	default n
+
+# GSM Specification
+config FEATURE_NCMC_GSM
+	bool "FEATURE_NCMC_GSM"
+	default n
+
+# DIAG Specification
+config FEATURE_NCMC_DIAG
+	bool "FEATURE_NCMC_DIAG"
+	default n
+
+# Touch Panel Specification
+config FEATURE_NCMC_TOUCHPANEL
+	bool "FEATURE_NCMC_TOUCHPANEL"
+	default n
+
+endmenu
+
+#========================================
+# Definition for typical function.
+#========================================
+
+menu "NCMC typical function option"
+
+# CPRM function.
+config FEATURE_NCMC_CPRM
+	bool "FEATURE_NCMC_CPRM"
+	default n
+
+# Felica function.
+config FEATURE_NCMC_FELICA
+	bool "FEATURE_NCMC_FELICA"
+	default n
+
+# Remote lock function.
+config FEATURE_NCMC_REMOTE_LOCK
+	bool "FEATURE_NCMC_REMOTE_LOCK"
+	default n
+
+# Pre-install application update function.
+config FEATURE_NCMC_SYS_UPDATE
+	bool "FEATURE_NCMC_SYS_UPDATE"
+	default n
+
+# PIN Code data initialize function.
+config FEATURE_NCMC_CLEAR_PASS
+	bool "FEATURE_NCMC_CLEAR_PASS"
+	default n
+
+# Carrier Mail function.
+config FEATURE_NCMC_CAREERMAIL
+	bool "FEATURE_NCMC_CAREERMAIL"
+	default n
+
+# MMS function.
+config FEATURE_NCMC_MMS
+	bool "FEATURE_NCMC_MMS"
+	default n
+
+# Comfort Tone Japan Specification function.
+config FEATURE_NCMC_COMFORT_TONE
+	bool "FEATURE_NCMC_COMFORT_TONE"
+	default n
+
+# IP Over USB function.
+config FEATURE_NCMC_IPOVERUSB
+	bool "FEATURE_NCMC_IPOVERUSB"
+	default n
+
+# Mail IM Export function.
+config FEATURE_NCMC_MAIL_IM_EXPORT
+	bool "FEATURE_NCMC_MAIL_IM_EXPORT"
+	default n
+
+# SMS IM Export function.
+config FEATURE_NCMC_SMS_IM_EXPORT
+	bool "FEATURE_NCMC_SMS_IM_EXPORT"
+	default n
+
+# FOTA function.
+config FEATURE_NCMC_FOTA
+	bool "FEATURE_NCMC_FOTA"
+	default n
+
+# WM DRM function.
+config FEATURE_NCMC_DRM_WM
+	bool "FEATURE_NCMC_DRM_WM"
+	default n
+
+# Play Ready function.
+config FEATURE_NCMC_DRM_PR
+	bool "FEATURE_NCMC_DRM_PR"
+	default n
+
+# OMA DR function.
+config FEATURE_NCMC_DRM_OMA
+	bool "FEATURE_NCMC_DRM_OMA"
+	default n
+
+# DTV function.
+config FEATURE_NCMC_DTV
+	bool "FEATURE_NCMC_DTV"
+	default n
+
+# WiFi setting AP mode function.
+config FEATURE_NCMC_WIFISETTING_APMODE
+	bool "FEATURE_NCMC_WIFISETTING_APMODE"
+	default n
+
+# WiFi setting rakuraku mode function.
+config FEATURE_NCMC_WIFISETTING_RAKURAKU
+	bool "FEATURE_NCMC_WIFISETTING_RAKURAKU"
+	default n
+
+# WiFi setting priority function.
+config FEATURE_NCMC_WIFISETTING_PRIORITY
+	bool "FEATURE_NCMC_WIFISETTING_PRIORITY"
+	default n
+
+# WiFi setting air plane function.
+config FEATURE_NCMC_WIFISETTING_AIRPLANE
+	bool "FEATURE_NCMC_WIFISETTING_AIRPLANE"
+	default n
+
+# Continous auto focus function.
+config FEATURE_NCMC_CAMERA_CONTINUOUS_AF
+	bool "FEATURE_NCMC_CAMERA_CONTINUOUS_AF"
+	default n
+
+# Face detect auto focus function.
+config FEATURE_NCMC_CAMERA_FACE_DETECT
+	bool "FEATURE_NCMC_CAMERA_FACE_DETECT"
+	default n
+
+# Shake resistent function.
+config FEATURE_NCMC_CAM_SHAKE_RESISTANT
+	bool "FEATURE_NCMC_CAM_SHAKE_RESISTANT"
+	default n
+
+# Quick shot function.
+config FEATURE_NCMC_CAM_QUICK_SHOT
+	bool "FEATURE_NCMC_CAM_QUICK_SHOT"
+	default n
+
+# Auto sene pict function.
+config FEATURE_NCMC_CAM_AUTO_SCENE_PICT
+	bool "FEATURE_NCMC_CAM_AUTO_SCENE_PICT"
+	default n
+
+# Speed movie function.
+config FEATURE_NCMC_CAM_SPEED_MOVIE
+	bool "FEATURE_NCMC_CAM_SPEED_MOVIE"
+	default n
+
+# NCMC OEM setting function.
+config FEATURE_NCMC_CAM_SETTING
+	bool "FEATURE_NCMC_CAM_SETTING"
+	default n
+
+# Self Timer function.
+config FEATURE_NCMC_CAM_SELF_TIMER
+	bool "FEATURE_NCMC_CAM_SELF_TIMER"
+	default n
+
+# Continuous shoot function.
+config FEATURE_NCMC_CAM_CONTINUOUS_SHOOT
+	bool "FEATURE_NCMC_CAM_CONTINUOUS_SHOOT"
+	default n
+
+# Mobile Light function.
+config FEATURE_NCMC_CAM_MOBILE_LIGHT
+	bool "FEATURE_NCMC_CAM_MOBILE_LIGHT"
+	default n
+
+# Prevent peeping function.
+config FEATURE_NCMC_CAM_LIGHT_PREVENT_PEEPING
+	bool "FEATURE_NCMC_CAM_LIGHT_PREVENT_PEEPING"
+	default n
+
+# EXIF setting function.
+config FEATURE_NCMC_CAM_EXIF
+	bool "FEATURE_NCMC_CAM_EXIF"
+	default n
+
+# RDA function.
+config FEATURE_NCMC_IRDA
+	bool "FEATURE_NCMC_IRDA"
+	default n
+	select IRDA
+	select IRDA_DEBUG
+	select IRTTY_SIR
+	select DONGLE
+	select MSM_SIR
+
+# Start : Trigger BRB setting
+if NCMC_TRIGGER_BRB
+# RDA function.
+config FEATURE_NCMC_IRDA_SIR_LOCALECHO
+	bool "FEATURE_NCMC_IRDA_SIR_LOCALECHO"
+	default n
+endif
+# End : Trigger BRB setting
+
+config FEATURE_NCMC_SE13_LIST
+	bool "FEATURE_NCMC_SE13_LIST"
+	default n
+
+config FEATURE_NCMC_OPERATOR_NAME_DOCOMO
+	bool "FEATURE_NCMC_OPERATOR_NAME_DOCOMO"
+	default n
+
+config FEATURE_NCMC_CAM_SOUND_PREVENT_PEEPING
+	bool "FEATURE_NCMC_CAM_SOUND_PREVENT_PEEPING"
+	default n
+
+config FEATURE_NCMC_EMERGENCY_JPN
+	bool "FEATURE_NCMC_EMERGENCY_JPN"
+	default n
+
+config FEATURE_NCMC_FAST_DORMANCY
+	bool "FEATURE_NCMC_FAST_DORMANCY"
+
+config FEATURE_NCMC_PWR_ON_FEEDBACK
+	bool "FEATURE_NCMC_PWR_ON_FEEDBACK"
+	default n
+
+config FEATURE_NCMC_SPMODE
+	bool "FEATURE_NCMC_SPMODE"
+	default n
+
+endmenu
+
+menu "NCMC Common defines selection."
+config NX9320
+	bool "NX9320"
+	default n
+
+config OEM_CH_GG1
+	bool "OEM_CH_GG1"
+	default n
+
+config OEM_CH_NORMAL_RELEASE
+	bool "OEM_CH_NORMAL_RELEASE"
+	default n
+
+config CHMC_EARLY_TEMPORARY
+	bool "CHMC_EARLY_TEMPORARY"
+	default n
+
+config CHMC_EARLY_TEMPORALY_DISP
+	bool "CHMC_EARLY_TEMPORALY_DISP"
+	default n
+
+config CHMC_EARLY_TEMPORALY_TOUCH
+	depends on SPI_QSD
+	bool "CHMC_EARLY_TEMPORALY_TOUCH"
+	default n
+	help
+	Synopex's touchpanel device is connected to MSM using SPI I/F.
+	Therefore if you enable this config item, you need spi_qsd driver through
+	enabling SPI_QSD config item.
+
+config CHMC_EARLY_TEMPORARY_USB
+	bool "CHMC_EARLY_TEMPORARY_USB"
+	default n
+
+config NCMC_USB
+	bool "NCMC_USB"
+	default n
+
+config CHMC_OEM_SLEEP_CHECK
+	depends on OEM_CH_NORMAL_RELEASE
+	bool "CHMC_OEM_SLEEP_CHECK"
+	default n
+
+endmenu
+
+# [It depends on each Vender Spec. End]
+# 20110919 [Build system improvements] end.
+
 endif

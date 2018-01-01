@@ -13,6 +13,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 /* #define DEBUG */
 
@@ -514,7 +518,8 @@ wait_for_int:
 			dev_err(dev->dev,
 				"(%04x) Error during data xfer (%d)\n",
 				addr, dev->err);
-			ret = dev->err;
+/* Support for Alarm watch */
+			ret = -ECOMM;
 			goto out_err;
 		}
 
@@ -744,8 +749,10 @@ msm_i2c_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int msm_i2c_suspend(struct platform_device *pdev, pm_message_t state)
+/* Support for suspended late/resume early */
+static int msm_i2c_suspend_noirq(struct device *device)
 {
+	struct platform_device *pdev = to_platform_device(device);
 	struct msm_i2c_dev *dev = platform_get_drvdata(pdev);
 	/* Wait until current transaction finishes
 	 * Make sure remote lock is released before we suspend
@@ -763,21 +770,28 @@ static int msm_i2c_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
-static int msm_i2c_resume(struct platform_device *pdev)
+/* Support for suspended late/resume early */
+static int msm_i2c_resume_noirq(struct device *device)
 {
+	struct platform_device *pdev = to_platform_device(device);
 	struct msm_i2c_dev *dev = platform_get_drvdata(pdev);
 	dev->suspended = 0;
 	return 0;
 }
 
+/* Support for suspended late/resume early */
+static const struct dev_pm_ops i2c_msm_dev_pm_ops = {
+       .suspend_noirq = msm_i2c_suspend_noirq,
+       .resume_noirq = msm_i2c_resume_noirq,
+};
+
 static struct platform_driver msm_i2c_driver = {
 	.probe		= msm_i2c_probe,
 	.remove		= msm_i2c_remove,
-	.suspend	= msm_i2c_suspend,
-	.resume		= msm_i2c_resume,
 	.driver		= {
 		.name	= "msm_i2c",
 		.owner	= THIS_MODULE,
+		.pm = &i2c_msm_dev_pm_ops,
 	},
 };
 

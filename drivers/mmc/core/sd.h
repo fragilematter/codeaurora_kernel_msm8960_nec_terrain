@@ -14,4 +14,8 @@ unsigned mmc_sd_get_max_clock(struct mmc_card *card);
 int mmc_sd_switch_hs(struct mmc_card *card);
 void mmc_sd_go_highspeed(struct mmc_card *card);
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+int mmc_sd_init_card(struct mmc_host *host, u32 ocr, struct mmc_card *oldcard);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 #endif

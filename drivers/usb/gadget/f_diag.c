@@ -14,6 +14,15 @@
  * GNU General Public License for more details.
  *
  */
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2012 */
+/**************************************************/
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+ 
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -27,6 +36,10 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+#include <linux/usb/oem_usb_common.h>
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
 static DEFINE_SPINLOCK(ch_lock);
 static LIST_HEAD(usb_diag_ch_list);
 
@@ -35,8 +48,13 @@ static struct usb_interface_descriptor intf_desc = {
 	.bDescriptorType    =	USB_DT_INTERFACE,
 	.bNumEndpoints      =	2,
 	.bInterfaceClass    =	0xFF,
+#ifdef CONFIG_FEATURE_NCMC_USB
+	.bInterfaceSubClass =	0x00,
+	.bInterfaceProtocol =	0x00,
+#else /* CONFIG_FEATURE_NCMC_USB */
 	.bInterfaceSubClass =	0xFF,
 	.bInterfaceProtocol =	0xFF,
+#endif /* CONFIG_FEATURE_NCMC_USB */
 };
 
 static struct usb_endpoint_descriptor hs_bulk_in_desc = {
@@ -124,6 +142,25 @@ struct diag_context {
 	unsigned long dpkts_tomodem;
 	unsigned dpkts_tolaptop_pending;
 };
+#ifdef CONFIG_FEATURE_NCMC_USB
+/* String IDs */
+#define INTERFACE_STRING_INDEX	0
+
+static struct usb_string diag_string_defs[] = {
+	[INTERFACE_STRING_INDEX].s	= NCMC_USB_IF_DESC_NAME_DIAG,
+	{  },	/* end of list */
+};
+
+static struct usb_gadget_strings diag_string_table = {
+	.language		= 0x0409,	/* en-US */
+	.strings		= diag_string_defs,
+};
+
+static struct usb_gadget_strings *diag_strings[] = {
+	&diag_string_table,
+	NULL,
+};
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 static inline struct diag_context *func_to_diag(struct usb_function *f)
 {
@@ -612,6 +649,9 @@ int diag_function_add(struct usb_configuration *c, const char *name,
 	struct diag_context *dev;
 	struct usb_diag_ch *_ch;
 	int found = 0, ret;
+#ifdef CONFIG_FEATURE_NCMC_USB
+	int		status;
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 	DBG(c->cdev, "diag_function_add\n");
 
@@ -626,6 +666,16 @@ int diag_function_add(struct usb_configuration *c, const char *name,
 		return -ENODEV;
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+	if (diag_string_defs[INTERFACE_STRING_INDEX].id == 0) {
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		diag_string_defs[INTERFACE_STRING_INDEX].id = status;
+		intf_desc.iInterface = status;
+	}
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
 	dev = container_of(_ch, struct diag_context, ch);
 	/* claim the channel for this USB interface */
 	_ch->priv_usb = dev;
@@ -633,6 +683,9 @@ int diag_function_add(struct usb_configuration *c, const char *name,
 	dev->update_pid_and_serial_num = update_pid; 
 	dev->cdev = c->cdev;
 	dev->function.name = _ch->name;
+#ifdef CONFIG_FEATURE_NCMC_USB
+	dev->function.strings = diag_strings;
+#endif /* CONFIG_FEATURE_NCMC_USB */
 	dev->function.descriptors = fs_diag_desc;
 	dev->function.hs_descriptors = hs_diag_desc;
 	dev->function.bind = diag_function_bind;

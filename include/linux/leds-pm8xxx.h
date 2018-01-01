@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __LEDS_PM8XXX_H__
 #define __LEDS_PM8XXX_H__
@@ -82,4 +87,8 @@ struct pm8xxx_led_platform_data {
 	struct	pm8xxx_led_config	*configs;
 	u32				num_configs;
 };
+
+
+int nc_pm8921_led_set_brightness(int led_id, int brightness);
+
 #endif /* __LEDS_PM8XXX_H__ */

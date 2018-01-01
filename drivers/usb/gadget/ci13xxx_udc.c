@@ -50,6 +50,15 @@
  * - Gadget API (majority of optional features)
  * - Suspend & Remote Wakeup
  */
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2011 */
+/**************************************************/
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dmapool.h>
@@ -68,6 +77,102 @@
 
 #include "ci13xxx_udc.h"
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/types.h>
+#include <linux/poll.h>
+#include "usb_diag_ioctl.h"
+#include <linux/timer.h>
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+
+#include <linux/i2c/bd91401gw.h>
+
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+
+/******************************************************************************
+ * prototype declaration
+ ******************************************************************************/
+int usb_ioctl_init(void);
+int usb_diag_dev_file_open(struct inode*, struct file*);
+int usb_diag_dev_file_close(struct inode*, struct file*);
+long usb_diag_dev_file_ioctl(struct file*, unsigned int, unsigned long);
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+
+int usb_diag_bd91401gw_read_reg(char*, char*);
+int usb_diag_bd91401gw_write_reg(char*, char*);
+
+int usb_diag_detect_earphone(unsigned char* polling_cmd); 
+int usb_diag_start_earphone_polling(void);
+int usb_diag_stop_earphone_polling(void);
+usb_diag_connected_audio_device_enum usb_diag_identify_audio_device(void); 
+static void usb_diag_earphone_polling_handler(struct work_struct *w);
+
+
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+
+
+void udc_usb_reconnect(void);
+static void udc_usb_force_reset(struct work_struct *w);
+
+
+/******************************************************************************
+ * global variables 
+ ******************************************************************************/
+dev_t           usb_diag_devno;
+struct cdev     usb_diag_cdev;               /* char device structure    */
+struct class    *usb_diag_class     = NULL;  /* class structure          */
+
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+bool   g_diag_usb_work_polling_flag = false;
+
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+
+struct delayed_work udc_reconnect_work;
+
+/******************************************************************************
+ * static variables 
+ ******************************************************************************/
+static int     dev_num_major = 0;
+static int     dev_num_minor = 0;
+static const struct file_operations usb_diag_fops = {
+    .owner   = THIS_MODULE,
+    .open    = usb_diag_dev_file_open,
+    .release = usb_diag_dev_file_close,
+    .unlocked_ioctl= usb_diag_dev_file_ioctl,
+};
+
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+static struct delayed_work usb_diag_polling_work;
+DEFINE_MUTEX(g_usb_diag_earphone_polling_lock);
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+
+static bool g_reconnect_flg = false;
+
+
+/******************************************************************************
+ * defining structures
+ ******************************************************************************/
+typedef struct{
+    unsigned char    address;         /* control register address */
+    unsigned char    value;           /* register address value(read/write) */
+}bd91401gw_reg_type;
+
+/******************************************************************************
+ * external references
+ ******************************************************************************/
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+extern int  bd91401gw_read_reg(bd91401gw_reg_type* reg_p);  /* BD91401GW register read */
+extern int  bd91401gw_write_reg(bd91401gw_reg_type* reg_p); /* BD91401GW register write */
+
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+extern void msm_otg_clr_bat_timer(void);
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 
 /******************************************************************************
  * DEFINE
@@ -118,6 +223,12 @@ static struct {
 		u32 idx;
 	} hndl;
 } isr_statistics;
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+#define USB_RECONNECT_DELAY_TIME 10 /* 100ms delay */
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 
 /**
  * ffs_nr: find first (least significant) bit set
@@ -2306,8 +2417,24 @@ __acquires(udc->lock)
 			err = isr_setup_status_phase(udc);
 			break;
 		case USB_REQ_SET_CONFIGURATION:
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+			msm_otg_clr_bat_timer();
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 			if (type == (USB_DIR_OUT|USB_TYPE_STANDARD))
 				udc->configured = !!req.wValue;
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+			printk(KERN_DEBUG "LINE:%u %s g_reconnect_flg:%d\n",__LINE__,__func__,g_reconnect_flg);
+			if(g_reconnect_flg == false){
+				g_reconnect_flg = true;
+				printk(KERN_DEBUG "LINE:%u %s speed:%d\n",__LINE__,__func__,udc->gadget.speed);
+				if(udc->gadget.speed == USB_SPEED_FULL){
+					printk(KERN_DEBUG "%s: Try reconnection processing for HS.\n",__func__);
+					udc_usb_reconnect();
+				}
+			}
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
 			goto delegate;
 		case USB_REQ_SET_FEATURE:
 			if (type == (USB_DIR_OUT|USB_RECIP_ENDPOINT) &&
@@ -2852,6 +2979,42 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 	return 0;
 }
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+void udc_usb_reconnect(void)
+{
+	printk(KERN_DEBUG "LINE:%u %s start \n",__LINE__,__func__);
+	schedule_delayed_work(&udc_reconnect_work, USB_RECONNECT_DELAY_TIME);
+	printk(KERN_DEBUG "LINE:%u %s end \n",__LINE__,__func__);
+}
+
+static void udc_usb_force_reset(struct work_struct *w)
+{
+	struct ci13xxx *udc = _udc;
+	struct usb_gadget *gadget;
+	
+	printk(KERN_DEBUG "LINE:%u %s start \n",__LINE__,__func__);
+	
+	if (udc == NULL) {
+		printk(KERN_ERR "%s: ERROR udc is NULL! \n",__func__);
+		return;
+	}
+	
+	gadget = &udc->gadget;
+	if (gadget == NULL) {
+		printk(KERN_ERR "%s: ERROR gadget is NULL! \n",__func__);
+		return;
+	}
+	
+	/* Reconnect Processing */
+	ci13xxx_vbus_session(gadget, 0);
+	msleep(200);
+	ci13xxx_vbus_session(gadget, 1);
+	
+	printk(KERN_DEBUG "LINE:%u %s end \n",__LINE__,__func__);
+}
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 /**
  * Device operations part of the API to the USB controller hardware,
@@ -3185,6 +3348,13 @@ static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 			driver->name == NULL)
 		return -EINVAL;
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+    usb_ioctl_init();
+    printk(KERN_INFO "%s: usb_ioctl_init() call##\n", __func__);
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
+	
 	udc = kzalloc(sizeof(struct ci13xxx), GFP_KERNEL);
 	if (udc == NULL)
 		return -ENOMEM;
@@ -3248,6 +3418,12 @@ static int udc_probe(struct ci13xxx_udc_driver *driver, struct device *dev,
 	pm_runtime_enable(&udc->gadget.dev);
 
 	_udc = udc;
+	
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+	INIT_DELAYED_WORK(&udc_reconnect_work, udc_usb_force_reset);
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
 	return retval;
 
 	err("error = %i", retval);
@@ -3292,3 +3468,440 @@ static void udc_remove(void)
 	kfree(udc);
 	_udc = NULL;
 }
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+/************************************************************************
+ * Module    : usb_ioctl_init                                           *
+ * Function  : Device File Initialize and Regist For Diagnosis Command  *
+ * Parameter : none                                                     *
+ * Return    : 0    : OK                                                *
+ *           : !0   : Error                                             *
+ ************************************************************************/
+int usb_ioctl_init( )
+{
+    int alloc_ret = 0;
+    int cdev_ret  = 0;
+    dev_t devno;
+    struct device *usb_diag_class_dev = NULL;
+
+    printk(KERN_INFO "%s: usb_ioctl_init() start##\n", __func__);
+	/* memory allocation */
+    alloc_ret = alloc_chrdev_region(&devno, 0, DEVICE_COUNTS, "tools_usb_diag");
+    /* check the return value */
+    if(alloc_ret < 0){
+        printk(KERN_ERR "[msm72k_udc]alloc_chrdev_region fail!\n");
+        return alloc_ret;/* err return */
+    }
+    
+    /* register a character device */
+    dev_num_major = MAJOR(devno);
+    cdev_init(&usb_diag_cdev, &usb_diag_fops);
+    usb_diag_cdev.owner = THIS_MODULE;
+    usb_diag_cdev.ops = &usb_diag_fops;
+    cdev_ret = cdev_add(&usb_diag_cdev, MKDEV(dev_num_major, dev_num_minor), DEVICE_COUNTS);
+    /* check the return value */
+    if(cdev_ret < 0){
+        unregister_chrdev_region( devno, DEVICE_COUNTS );/* free memory  */
+        printk(KERN_ERR "[msm72k_udc]cdev_add fail!\n");
+        return cdev_ret;/* err return */
+    }
+    
+    /* create a class */
+    usb_diag_class = class_create(THIS_MODULE, "tools_usb_diag");
+    /* check the return value */
+    if (IS_ERR( usb_diag_class )) {
+        /* error to create a class */
+        cdev_del(&usb_diag_cdev);
+        unregister_chrdev_region( devno, DEVICE_COUNTS );/* free memory  */
+        printk(KERN_ERR "[msm72k_udc]class_create fail!\n");
+        return -1;/* err return */
+    }
+
+    /* device number setting */
+    usb_diag_devno = MKDEV(dev_num_major, dev_num_minor);
+    /* create a device */
+    usb_diag_class_dev = device_create( usb_diag_class, 
+                                        NULL, 
+                                        devno, 
+                                        NULL,
+                                        "tools_usb_diag");
+    if (IS_ERR( usb_diag_class_dev )) {
+        printk(KERN_INFO "[msm72k_udc]device_create fail!\n");
+        return -1;/* err return */
+    }
+    printk(KERN_INFO "%s: usb_ioctl_init() end##\n", __func__);
+    return 0;
+}
+
+/************************************************************************
+ * Module    : usb_diag_dev_file_open                                   *
+ * Function  : Open Device File For Diagnosis Command                   *
+ * Parameter : struct inode* inode  : inode structure                   *
+ *           : struct file* filp    : file structure                    *
+ * Return    : 0    : OK                                                *
+ *           : !0   : Error                                             *
+ ************************************************************************/
+int usb_diag_dev_file_open(struct inode *inode, struct file *filp)
+{
+    printk(KERN_INFO "%s: usb_diag_dev_file_open() call##\n", __func__);
+    return 0;
+}
+
+/************************************************************************
+ * Module    : usb_diag_dev_file_close                                  *
+ * Function  : Close Device File For Diagnosis Command                  *
+ * Parameter : struct inode* inode  : inode structure                   *
+ *           : struct file* filp    : file structure                    *
+ * Return    : 0    : OK                                                *
+ *           : !0   : Error                                             *
+ ************************************************************************/
+int usb_diag_dev_file_close(struct inode *inode, struct file *filp)
+{
+    printk(KERN_INFO "%s: usb_diag_dev_file_close() call##\n", __func__);
+    return 0;
+}
+
+/************************************************************************
+ * Module    : usb_diag_dev_file_ioctl                                  *
+ * Function  : ioctl Device File For Diagnosis Command                  *
+ * Parameter : struct file* filp    : file structure                    *
+ *           : unsigned int cmd     : command                           *
+ *           : unsigned long arg    : parameters                        *
+ * Return    : 0    : OK                                                *
+ *           : !0   : Error                                             *
+ * Note      : When USB-SW IC is not equipped with, return !0.          *
+ ************************************************************************/
+long usb_diag_dev_file_ioctl(struct file *filp,
+                                     unsigned int cmd, unsigned long arg)
+{
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+
+    printk(KERN_INFO "%s: cmd = 0x%x ##\n", __func__, cmd);
+    printk(KERN_ERR "%s: Error USB-SW is non-supported \n", __func__);
+    return USB_DIAG_CMD_RET_NG;
+#else /* CONFIG_FEATURE_NCMC_RUBY */
+    int ret = -1;          /* return value */
+    struct usb_diag_ioctl_cmd usb_diag_cmd_out;
+    struct usb_diag_ioctl_cmd *usb_diag_cmd_in;
+    
+    char ioctl_data[2];
+    
+    printk(KERN_INFO "%s: usb_diag_dev_file_ioctl() start##\n", __func__);
+    usb_diag_cmd_in = (struct usb_diag_ioctl_cmd *) arg;
+    printk(KERN_INFO "%s: cmd = 0x%x ##\n", __func__, cmd);
+    
+    switch(cmd){
+        case IOCTL_USB_DIAG_READ_REG:       /* USB-SWIC register write command*/
+            printk(KERN_INFO "%s: cmd = IOCTL_USB_DIAG_READ_REG## \n", __func__);
+            ret = copy_from_user(ioctl_data, (char*)arg, sizeof( ioctl_data ));
+            if( ret != 0 )
+            {
+                break;
+            }
+            /* USB-SWIC register read */
+            ret = usb_diag_bd91401gw_read_reg(ioctl_data,usb_diag_cmd_out.rsp_data);
+            if( ret != 0 )
+            {
+                break;
+            }
+            ret = copy_to_user( usb_diag_cmd_in, &usb_diag_cmd_out,
+                                 sizeof( struct usb_diag_ioctl_cmd ) );
+            break;
+        case IOCTL_USB_DIAG_WRITE_REG:      /* USB-SWIC register write command*/
+            printk(KERN_INFO "%s: cmd = IOCTL_USB_DIAG_WRITE_REG ##\n", __func__);
+            ret = copy_from_user(ioctl_data, (char*)arg, sizeof( ioctl_data ));
+            if( ret != 0 )
+            {
+                break;
+            }
+            /* USB-SWIC register write */
+            ret = usb_diag_bd91401gw_write_reg(&ioctl_data[0],&ioctl_data[1]);
+            if( ret == USB_DIAG_CMD_RET_OK)
+            {
+                usb_diag_cmd_out.rsp_data[0] = USB_DIAG_RSP_RET_OK;
+            }
+            else
+            {
+                usb_diag_cmd_out.rsp_data[0] = USB_DIAG_RSP_RET_NG;
+            }
+            ret = copy_to_user( usb_diag_cmd_in, &usb_diag_cmd_out,
+                                 sizeof( struct usb_diag_ioctl_cmd ) );
+            break;
+
+
+        case IOCTL_USB_DIAG_DETECT_EARPHONE: 
+            printk(KERN_INFO "%s: cmd = IOCTL_USB_DIAG_DETECT_EARPHONE## \n", __func__);
+            ret = copy_from_user(ioctl_data, (unsigned char*)arg, sizeof( ioctl_data ));
+            if( ret != 0 )
+            {
+                break;
+            }
+            usb_diag_cmd_out.rsp_data[0] = usb_diag_detect_earphone(ioctl_data);
+            ret = copy_to_user( usb_diag_cmd_in, &usb_diag_cmd_out,
+                                 sizeof( struct usb_diag_ioctl_cmd ) );
+            break;
+
+
+        default:
+            printk(KERN_ERR "[usb_diag_dev_file_ioctl] cmd er!\n");
+            break;
+
+    }
+    if( ret != 0 )
+    {
+        ret = USB_DIAG_CMD_RET_NG;/* err return */
+    }
+    printk(KERN_INFO "%s: usb_diag_dev_file_ioctl() end##\n", __func__);
+    return ret;
+
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
+}
+
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+
+/************************************************************************
+ * Module    : usb_diag_bd91401gw_write_reg                             *
+ * Function  : For Diagnosis Command(USB-SWIC register write)           *
+ * Parameter : char* write_addr                                         *
+ *             char* write_value                                        *
+ * Return    :  USB_DIAG_CMD_RSP_OK  : write success                    *
+ *           :  USB_DIAG_CMD_RSP_NG  : write failure                    *
+ ************************************************************************/
+int usb_diag_bd91401gw_write_reg(char* write_addr, char* write_value)
+{
+    int ret = USB_DIAG_CMD_RET_NG;
+    bd91401gw_reg_type usb_diag_write_reg;
+    usb_diag_write_reg.address = 0xff;
+    usb_diag_write_reg.value = 0xff;
+
+    printk(KERN_INFO "%s: usb_diag_bd91401gw_write_reg() start##\n", __func__);
+    if((write_addr != NULL) && (write_value != NULL))          /* NULL check */
+    { 
+        if(( *write_addr >= 0x00) && (*write_addr <= BD91401GW_SOFTRESET_ADDRESS))
+        {
+            usb_diag_write_reg.address = *write_addr;
+            usb_diag_write_reg.value = *write_value;
+        
+            ret = bd91401gw_write_reg(&usb_diag_write_reg);/* write register */
+            printk(KERN_INFO "%s: bd91401gw_write_reg() ret= 0x%x ##\n", __func__, ret );
+        }
+    }
+    printk(KERN_INFO "%s: usb_diag_bd91401gw_write_reg() end##\n", __func__);
+    return (ret);
+}
+
+/************************************************************************
+ * Module    : usb_diag_bd91401gw_read_reg                              *
+ * Function  : For Diagnosis Command(USB-SWIC register read)            *
+ * Parameter : char* read_addr                                          *
+ *             char* read_value                                         *
+ * Return    :  USB_DIAG_CMD_RET_OK  : read success                     *
+ *           :  USB_DIAG_CMD_RET_NG  : read failure                     *
+ ************************************************************************/
+int usb_diag_bd91401gw_read_reg(char* read_addr, char* read_value)
+{
+    int ret = USB_DIAG_CMD_RET_NG;
+    bd91401gw_reg_type usb_diag_read_reg;
+    usb_diag_read_reg.address = 0xff;
+    usb_diag_read_reg.value = 0xff;
+
+    printk(KERN_INFO "%s: usb_diag_bd91401gw_read_reg() start##\n", __func__);
+    if((read_addr != NULL) && (read_value != NULL))            /* NULL check */
+    {
+        if(( *read_addr >= 0x00) && (*read_addr <= BD91401GW_SOFTRESET_ADDRESS))
+        {
+            usb_diag_read_reg.address = *read_addr;
+            usb_diag_read_reg.value = *read_value;
+            ret = bd91401gw_read_reg(&usb_diag_read_reg);   /* read register */
+            printk(KERN_INFO "%s: bd91401gw_read_reg() ret= 0x%x ##\n", __func__ , ret );
+            *read_value = usb_diag_read_reg.value;
+        }
+    }
+    printk(KERN_INFO "%s: usb_diag_bd91401gw_read_reg() end##\n", __func__);
+    return (ret);
+}
+
+
+
+/************************************************************************
+ * Module    : usb_diag_detect_earphone                                 *
+ * Function  : For Diagnosis Command(detect earphone)                   *
+ * Parameter : ioctl_cmd                                                *
+ * Return    : data =  0  : regulate success                            *
+ *           : data = -1  : error                                       *
+ ************************************************************************/
+int usb_diag_detect_earphone(unsigned char* polling_cmd)
+{
+    int ret = -1;
+    switch(*polling_cmd)
+    {
+        case USB_DIAG_START_POLLING:
+            if(g_diag_usb_work_polling_flag != true){
+                INIT_DELAYED_WORK(&usb_diag_polling_work, usb_diag_earphone_polling_handler);
+            }
+            ret = usb_diag_start_earphone_polling();
+            break;
+        case USB_DIAG_STOP_POLLING:
+            ret = usb_diag_stop_earphone_polling();
+            break;
+        default :
+            break;
+    }
+    return (ret);
+}
+
+/************************************************************************
+ * Module    : usb_diag_start_earphone_polling                          *
+ * Function  : For Diagnosis Command(start polling)                     *
+ * Parameter : None                                                     *
+ * Return    : 0    : OK                                                *
+ *           : -1   : Error                                             *
+ ************************************************************************/
+int usb_diag_start_earphone_polling(void)
+{
+    int ret = -1;
+
+    if(g_diag_usb_work_polling_flag == true)
+    {
+        return (ret);
+    }
+    g_diag_usb_work_polling_flag = true;
+
+    schedule_delayed_work(&usb_diag_polling_work, USB_DIAG_POLLING_INTERVAL_TIME);
+
+    return (0);
+}
+
+/************************************************************************
+ * Module    : usb_diag_stop_earphone_polling                           *
+ * Function  : For Diagnosis Command(stop polling)                      *
+ * Parameter : None                                                     *
+ * Return    : 0    : OK                                                *
+ *           : -1   : Error                                             *
+ ************************************************************************/
+int usb_diag_stop_earphone_polling(void)
+{
+    int ret = -1;
+    if(g_diag_usb_work_polling_flag == false)
+    {
+        return (ret);
+    }
+    g_diag_usb_work_polling_flag = false;
+    printk(KERN_INFO "[%s]:work flag false!\n", __func__ );
+
+    return (0);
+}
+
+/****************************************************************************
+@function   : usb_diag_earphone_polling_handler
+@parameters : None
+@returns    : None
+****************************************************************************/
+static void usb_diag_earphone_polling_handler( struct work_struct *w )
+{
+    int ret = BD91401GW_NG;
+    bd91401gw_reg_type usb_diag_read_swcontrol_reg = {BD91401GW_SWCONTROL_ADDRESS,0xff};
+    bd91401gw_reg_type usb_diag_write_swcontrol_reg = {BD91401GW_SWCONTROL_ADDRESS,0xff};
+
+    bd91401gw_reg_type usb_diag_write_swcontrol_unconnect_reg = {BD91401GW_SWCONTROL_ADDRESS, BD91401GW_SWCONTROL_UNCONNECTION};
+    usb_diag_connected_audio_device_enum connected_audio_device = USB_DIAG_NOT_AUDIO_CONNECTION;
+    
+
+    if(g_diag_usb_work_polling_flag == false)
+    {
+        return;
+    }
+    mutex_lock(&g_usb_diag_earphone_polling_lock);
+
+
+    connected_audio_device = usb_diag_identify_audio_device();
+
+    switch( connected_audio_device )
+    {
+        case USB_DIAG_AUDIO_STEREO_CONNECTION:
+            usb_diag_write_swcontrol_reg.value = BD91401GW_SWCONTROL_EAR;
+            break;
+        case USB_DIAG_AUDIO_MONO_CONNECTION:
+            usb_diag_write_swcontrol_reg.value = BD91401GW_SWCONTROL_EAR;
+            break;
+        case USB_DIAG_AUDIO_MONO_CHG_CONNECTION:
+            usb_diag_write_swcontrol_reg.value = BD91401GW_SWCONTROL_CHG_EAR;
+            break;
+        default:
+            usb_diag_write_swcontrol_reg.value = BD91401GW_SWCONTROL_DEFAULT;
+            break;
+    }
+
+    ret = bd91401gw_read_reg(&usb_diag_read_swcontrol_reg);
+    if ( ret == BD91401GW_NG )
+    {
+        schedule_delayed_work(&usb_diag_polling_work, USB_DIAG_POLLING_INTERVAL_TIME);
+        mutex_unlock(&g_usb_diag_earphone_polling_lock);
+        return;
+    }
+
+    if(usb_diag_read_swcontrol_reg.value != usb_diag_write_swcontrol_reg.value)
+    {
+        if(usb_diag_write_swcontrol_reg.value != BD91401GW_SWCONTROL_DEFAULT)
+        {
+            ret = bd91401gw_write_reg(&usb_diag_write_swcontrol_unconnect_reg);
+            if ( ret == BD91401GW_NG ) 
+            {
+                schedule_delayed_work(&usb_diag_polling_work, USB_DIAG_POLLING_INTERVAL_TIME);
+                mutex_unlock(&g_usb_diag_earphone_polling_lock);
+                return;
+            }
+            udelay(5);
+        }
+        ret = bd91401gw_write_reg(&usb_diag_write_swcontrol_reg);
+        if ( ret == BD91401GW_NG ) 
+        {
+            schedule_delayed_work(&usb_diag_polling_work, USB_DIAG_POLLING_INTERVAL_TIME);
+            mutex_unlock(&g_usb_diag_earphone_polling_lock);
+            return;
+        }
+    }
+
+    schedule_delayed_work(&usb_diag_polling_work, USB_DIAG_POLLING_INTERVAL_TIME);
+    mutex_unlock(&g_usb_diag_earphone_polling_lock);
+
+}
+
+/****************************************************************************
+@function   : usb_diag_identify_audio_device
+@parameters : None
+@returns    : usb_diag_connected_audio_device_enum
+****************************************************************************/
+usb_diag_connected_audio_device_enum usb_diag_identify_audio_device( void )
+{
+    int ret = BD91401GW_NG;
+    usb_diag_connected_audio_device_enum device_ret = USB_DIAG_NOT_AUDIO_CONNECTION;
+    bd91401gw_reg_type usb_diag_read_reg;
+
+    usb_diag_read_reg.address = BD91401GW_IDSTATUS_ADDRESS;
+    usb_diag_read_reg.value = 0xff;
+    
+    ret = bd91401gw_read_reg(&usb_diag_read_reg);
+    if( ret != BD91401GW_OK ) 
+    {
+        return ( USB_DIAG_NOT_AUDIO_CONNECTION );
+    }
+    switch( usb_diag_read_reg.value )
+    {
+        case BD91401GW_IDSTATUS_TYPE_STEREO_EAR:
+            device_ret = USB_DIAG_AUDIO_STEREO_CONNECTION;
+            break;
+        case BD91401GW_IDSTATUS_TYPE_MONO_EAR:
+            device_ret = USB_DIAG_AUDIO_MONO_CONNECTION;
+            break;
+        case BD91401GW_IDSTATUS_TYPE_CHG_EAR:
+            device_ret = USB_DIAG_AUDIO_MONO_CHG_CONNECTION;
+            break;
+        default:
+            break;
+    }
+
+    return ( device_ret );
+}
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /* CONFIG_FEATURE_NCMC_USB */

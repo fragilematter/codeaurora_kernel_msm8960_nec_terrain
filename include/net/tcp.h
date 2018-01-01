@@ -15,6 +15,11 @@
  *		as published by the Free Software Foundation; either version
  *		2 of the License, or (at your option) any later version.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 #ifndef _TCP_H
 #define _TCP_H
 
@@ -97,7 +102,7 @@ extern void tcp_time_wait(struct sock *sk, int state, int timeo);
 				 * 15 is ~13-30min depending on RTO.
 				 */
 
-#define TCP_SYN_RETRIES	 5	/* number of times to retry active opening a
+#define TCP_SYN_RETRIES	 4	/* number of times to retry active opening a
 				 * connection: ~180sec is RFC minimum	*/
 
 #define TCP_SYNACK_RETRIES 5	/* number of times to retry passive opening a
@@ -1106,9 +1111,6 @@ struct tcp4_md5sig_key {
 
 struct tcp6_md5sig_key {
 	struct tcp_md5sig_key	base;
-#if 0
-	u32			scope_id;	/* XXX */
-#endif
 	struct in6_addr		addr;
 };
 

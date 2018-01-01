@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -376,6 +380,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	mdp4_stat.intr_tot++;
 	mask = inpdw(MDP_INTR_ENABLE);
 	outpdw(MDP_INTR_CLEAR, isr);
+
 
 	if (isr & INTR_PRIMARY_INTF_UDERRUN) {
 		mdp4_stat.intr_underrun_p++;
@@ -2358,6 +2363,15 @@ void mdp4_rgb_igc_lut_setup(int num)
 		outpdw(base + off + 0x800, val);	/* color 2 */
 		off += 4;
 	}
+
+/* M7-S-kmseo-2011.12.16 LCD Rotation */
+#ifdef CONFIG_GG3_LCD_ROTATION
+	{
+		uint32 intf = inpdw(MDP_BASE + MDP4_RGB_BASE + voff + 0x0058);
+		outpdw(MDP_BASE + MDP4_RGB_BASE + voff + 0x0058, 
+			intf | MDP4_OP_SCALEY_EN | MDP4_OP_SCALEX_EN | MDP4_OP_FLIP_UD | MDP4_OP_FLIP_LR);
+	}
+#endif
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 

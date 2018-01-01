@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef MIPI_DSI_H
 #define MIPI_DSI_H
@@ -51,7 +55,13 @@
 #define MIPI_DSI_PANEL_QHD_PT 5
 #define MIPI_DSI_PANEL_WXGA	6
 #define MIPI_DSI_PANEL_WUXGA	7
-#define DSI_PANEL_MAX	7
+
+#define MIPI_DSI_PANEL_HD_PT	8
+#define MIPI_DSI_PANEL_D121M_PT	9
+#define MIPI_DSI_PANEL_D121F_PT	10
+#define MIPI_DSI_PANEL_G121S_PT	11
+#define DSI_PANEL_MAX	11
+
 
 enum {		/* mipi dsi panel */
 	DSI_VIDEO_MODE,
@@ -186,7 +196,8 @@ struct dsi_clk_desc {
 #define DSI_BUF_SIZE	1024
 #define MIPI_DSI_MRPS	0x04  /* Maximum Return Packet Size */
 
-#define MIPI_DSI_LEN 8 /* 4 x 4 - 6 - 2, bytes dcs header+crc-align  */
+//#define MIPI_DSI_LEN 8 /* 4 x 4 - 6 - 2, bytes dcs header+crc-align  */
+#define MIPI_DSI_LEN 12
 
 struct dsi_buf {
 	uint32 *hdr;	/* dsi host header */

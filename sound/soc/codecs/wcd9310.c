@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/firmware.h>
@@ -32,6 +37,14 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include "wcd9310.h"
+
+#include <linux/moduleparam.h>
+
+
+#include "wcd9310_headset.h"
+
+#include <linux/i2c/usb_switch_if_knl.h>
+
 
 #define WCD9310_RATES (SNDRV_PCM_RATE_8000|SNDRV_PCM_RATE_16000|\
 			SNDRV_PCM_RATE_32000|SNDRV_PCM_RATE_48000)
@@ -66,10 +79,37 @@ enum {
 
 #define TABLA_FAKE_INS_THRESHOLD_MS 2500
 #define TABLA_FAKE_REMOVAL_MIN_PERIOD_MS 50
+#define TABLA_AUDIOIF_USB_MIC_VOL_DIFF_NOMIC_MORE_THRESHOLD 0x09C4
+#define TABLA_AUDIOIF_USB_MIC_VOL_DIFF_NOMIC_LESS_THRESHOLD 0x32
+volatile int AudioIF_HST_Status = 0;
+void** AudioIF_Callback_Insert = NULL;
+void** AudioIF_Callback_Remove = NULL;
+int AudioIF_Tabla_Irq_Insert = 0;
+int AudioIF_Tabla_Irq_Remove = 0;
+int AudioIF_Tabla_Irq_Push = 0;
+int AudioIF_Tabla_Irq_Release = 0;
+struct tabla_priv* AudioIF_Tabla_Priv = NULL;
+u32 *AudioIF_Tabla_hph_status = NULL;
+struct snd_soc_jack *AudioIF_Tabla_headset_jack;
+
+static irqreturn_t headset_det_line_irq(int irq, void *data);
+/* 8960 DIAG */
+static int earjack_sts = 0;
+
+module_param(earjack_sts, int, 0444);
+MODULE_PARM_DESC(earjack_sts, "Earjack_sts # for sound driver.");
+
+static int chattering_time = AUDIOIF_CHATTERING_ONLY;
+
+module_param(chattering_time, int, 0644);
+MODULE_PARM_DESC(chattering_time, "Chattering # for sound driver.");
+
+irqreturn_t tabla_hs_insert_irq(int irq, void *data);
+irqreturn_t tabla_hs_remove_irq(int irq, void *data);
 
 #define TABLA_MBHC_BUTTON_MIN 0x8000
 
-#define TABLA_MBHC_FAKE_INSERT_LOW 10
+#define TABLA_MBHC_FAKE_INSERT_LOW 25
 #define TABLA_MBHC_FAKE_INSERT_HIGH 80
 #define TABLA_MBHC_FAKE_INS_HIGH_NO_GPIO 150
 
@@ -77,8 +117,10 @@ enum {
 
 #define TABLA_MBHC_GPIO_REL_DEBOUNCE_TIME_MS 200
 
-#define TABLA_MBHC_FAKE_INS_DELTA_MV 200
-#define TABLA_MBHC_FAKE_INS_DELTA_SCALED_MV 300
+// #define TABLA_MBHC_FAKE_INS_DELTA_MV 200         // <---- Disabled original threshold value
+// #define TABLA_MBHC_FAKE_INS_DELTA_SCALED_MV 300  // <---- Disabled original threshold value
+#define TABLA_MBHC_FAKE_INS_DELTA_MV 267 
+#define TABLA_MBHC_FAKE_INS_DELTA_SCALED_MV 400
 
 #define TABLA_HS_DETECT_PLUG_TIME_MS (5 * 1000)
 #define TABLA_HS_DETECT_PLUG_INERVAL_MS 100
@@ -214,6 +256,10 @@ struct tabla_priv {
 	bool no_mic_headset_override;
 	/* Delayed work to report long button press */
 	struct delayed_work mbhc_btn_dwork;
+
+	/* 120308 3.5 headset_chattering Start */
+	struct delayed_work chattering_dwork;
+	/* 120308 3.5 headset_chattering End */
 
 	struct mbhc_micbias_regs mbhc_bias_regs;
 	bool mbhc_micbias_switched;
@@ -553,6 +599,63 @@ static const struct soc_enum tabla_ear_pa_gain_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, tabla_ear_pa_gain_text),
 };
 
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+static const char *tabla_mic1_int_bias_text[] = {"ZERO", "CFG1"};
+static const struct soc_enum tabla_mic1_int_bias_enum[] = {
+		SOC_ENUM_SINGLE_EXT(2, tabla_mic1_int_bias_text),
+};
+
+int tabla_mic1int_ctl = 1;
+static int tabla_mic1_int_bias_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = tabla_mic1int_ctl;
+	pr_debug("%s: 0x%x\n", __func__, tabla_mic1int_ctl);
+	return 0;
+}
+
+static int tabla_mic1_int_bias_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	tabla_mic1int_ctl = (ucontrol->value.integer.value[0]) ? 1 : 0;
+	pr_debug("tabla_mic1_int_bias_put: req:%d val:%d \n", (int)ucontrol->value.integer.value[0], tabla_mic1int_ctl);
+	if( tabla_mic1int_ctl == 0 )
+	{
+		snd_soc_update_bits(codec, TABLA_A_MICB_1_INT_RBIAS, 0xFF, 0x24);
+	}
+	return 0;
+}
+static const char *tabla_mic3_int_bias_text[] = {"ZERO", "CFG1"};
+static const struct soc_enum tabla_mic3_int_bias_enum[] = {
+		SOC_ENUM_SINGLE_EXT(2, tabla_mic3_int_bias_text),
+};
+
+int tabla_mic3int_ctl = 1;
+static int tabla_mic3_int_bias_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = tabla_mic3int_ctl;
+	pr_debug("%s: 0x%x\n", __func__, tabla_mic3int_ctl);
+	return 0;
+}
+
+static int tabla_mic3_int_bias_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	tabla_mic3int_ctl = (ucontrol->value.integer.value[0]) ? 1 : 0;
+	pr_debug("tabla_mic3_int_bias_put: req:%d val:%d \n", (int)ucontrol->value.integer.value[0], tabla_mic3int_ctl);
+	if( tabla_mic3int_ctl == 0 )
+	{
+		snd_soc_update_bits(codec, TABLA_A_MICB_3_INT_RBIAS, 0xFF, 0x24);
+	}
+	return 0;
+}
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
+
 /*cut of frequency for high pass filter*/
 static const char *cf_text[] = {
 	"MIN_3DB_4Hz", "MIN_3DB_75Hz", "MIN_3DB_150Hz"
@@ -763,6 +866,12 @@ static const struct snd_kcontrol_new tabla_snd_controls[] = {
 	tabla_get_iir_band_audio_mixer, tabla_put_iir_band_audio_mixer),
 	SOC_SINGLE_MULTI_EXT("IIR2 Band5", IIR2, BAND5, 255, 0, 5,
 	tabla_get_iir_band_audio_mixer, tabla_put_iir_band_audio_mixer),
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	SOC_ENUM_EXT("MIC1INT_RBIAS_Ctl", tabla_mic1_int_bias_enum[0],
+		tabla_mic1_int_bias_get, tabla_mic1_int_bias_put),
+	SOC_ENUM_EXT("MIC3INT_RBIAS_Ctl", tabla_mic3_int_bias_enum[0],
+		tabla_mic3_int_bias_get, tabla_mic3_int_bias_put),
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 };
 
 static const struct snd_kcontrol_new tabla_1_x_snd_controls[] = {
@@ -1746,7 +1855,27 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		tabla_codec_update_cfilt_usage(codec, cfilt_sel_val, 1);
 
 		if (strnstr(w->name, internal1_text, 30))
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+		{
+			if( micb_int_reg == TABLA_A_MICB_1_INT_RBIAS ){
+				if( tabla_mic1int_ctl ){
+					snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+				}else{
+					pr_debug("%s mic1b no config\n", __func__);
+				}
+			}else if( micb_int_reg == TABLA_A_MICB_3_INT_RBIAS ){
+				if( tabla_mic3int_ctl ){
+					snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+				}else{
+					pr_debug("%s mic3b no config\n", __func__);
+				}
+			}else{
+				snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+			}
+		}
+#else/* CONFIG_FEATURE_NCMC_AUDIO */
 			snd_soc_update_bits(codec, micb_int_reg, 0xE0, 0xE0);
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 		else if (strnstr(w->name, internal2_text, 30))
 			snd_soc_update_bits(codec, micb_int_reg, 0x1C, 0x1C);
 		else if (strnstr(w->name, internal3_text, 30))
@@ -1775,7 +1904,27 @@ static int tabla_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		}
 
 		if (strnstr(w->name, internal1_text, 30))
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+		{
+			if( micb_int_reg == TABLA_A_MICB_1_INT_RBIAS ){
+				if( tabla_mic1int_ctl ){
+					snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
+				}else{
+					pr_debug("%s mic1b no config\n", __func__);
+				}
+			}else if( micb_int_reg == TABLA_A_MICB_3_INT_RBIAS ){
+				if( tabla_mic3int_ctl ){
+					snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
+				}else{
+					pr_debug("%s mic3b no config\n", __func__);
+				}
+			}else{
+				snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
+			}
+		}
+#else/* CONFIG_FEATURE_NCMC_AUDIO */
 			snd_soc_update_bits(codec, micb_int_reg, 0x80, 0x00);
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 		else if (strnstr(w->name, internal2_text, 30))
 			snd_soc_update_bits(codec, micb_int_reg, 0x10, 0x00);
 		else if (strnstr(w->name, internal3_text, 30))
@@ -3058,9 +3207,19 @@ static void tabla_codec_enable_bandgap(struct snd_soc_codec *codec,
 			0x00);
 	} else if ((tabla->bandgap_type == TABLA_BANDGAP_MBHC_MODE) &&
 		(choice == TABLA_BANDGAP_AUDIO_MODE)) {
+
+		/* 120110 Headset Detect (GPIO 19) Start */
+		if ((AudioIF_HST_Status & (AUDIOIF_DET_INS_FLAG | AUDIOIF_DET_REM_FLAG)) > 1)
+		{
+			usleep_range(100, 100);
+		} else {
+
 		snd_soc_write(codec, TABLA_A_BIAS_CENTRAL_BG_CTL, 0x50);
 		usleep_range(100, 100);
 		tabla_codec_enable_audio_mode_bandgap(codec);
+
+		}
+		/* 120110 Headset Detect (GPIO 19) end */
 	} else if (choice == TABLA_BANDGAP_OFF) {
 		snd_soc_write(codec, TABLA_A_BIAS_CENTRAL_BG_CTL, 0x50);
 	} else {
@@ -3650,6 +3809,9 @@ static short tabla_codec_setup_hs_polling(struct snd_soc_codec *codec)
 	pr_debug("%s: enter, mclk_enabled %d\n", __func__, tabla->mclk_enabled);
 	if (!tabla->mbhc_cfg.calibration) {
 		pr_err("Error, no tabla calibration\n");
+/* 120203 Headset Detect DIAG */
+		AudioIF_HST_Status |= AUDIOIF_DRIVER_ERR_FLAG;
+/* 120203 Headset Detect DIAG */
 		return -ENODEV;
 	}
 
@@ -3833,12 +3995,18 @@ static void tabla_codec_report_plug(struct snd_soc_codec *codec, int insertion,
 			tabla->current_plug = PLUG_TYPE_HEADSET;
 		}
 		if (tabla->mbhc_cfg.headset_jack) {
-			pr_debug("%s: Reporting insertion %d\n", __func__,
-				 jack_type);
-			tabla_snd_soc_jack_report(tabla,
-						  tabla->mbhc_cfg.headset_jack,
-						  tabla->hph_status,
-						  TABLA_JACK_MASK);
+
+			/* 120528 USB Earphone Reporting timing chg start */
+			if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+			{
+				pr_debug("%s: Reporting insertion %d\n", __func__,
+					 jack_type);
+				tabla_snd_soc_jack_report(tabla,
+							  tabla->mbhc_cfg.headset_jack,
+							  tabla->hph_status,
+							  TABLA_JACK_MASK);
+			}
+			/* 120528 USB Earphone Reporting timing chg end */
 		}
 		tabla_clr_and_turnon_hph_padac(tabla);
 	}
@@ -3856,6 +4024,8 @@ static int tabla_codec_enable_hs_detect(struct snd_soc_codec *codec,
 	    TABLA_MBHC_CAL_PLUG_DET_PTR(tabla->mbhc_cfg.calibration);
 
 	if (!tabla->mbhc_cfg.calibration) {
+		/* 120203 Headset Detect DIAG */
+		AudioIF_HST_Status |= AUDIOIF_DRIVER_ERR_FLAG;
 		pr_err("Error, no tabla calibration\n");
 		return -EINVAL;
 	}
@@ -3962,7 +4132,7 @@ static int tabla_codec_enable_hs_detect(struct snd_soc_codec *codec,
 	snd_soc_update_bits(codec, tabla->reg_addr.micb_4_mbhc, 0x3,
 			    tabla->mbhc_cfg.micbias);
 
-	tabla_enable_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION);
+//	tabla_enable_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION);
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_INT_CTL, 0x1, 0x1);
 	return 0;
 }
@@ -4055,6 +4225,97 @@ static void btn_lpress_fn(struct work_struct *work)
 	pr_debug("%s: leave\n", __func__);
 	tabla_unlock_sleep(core);
 }
+
+/* 120308 3.5 headset_chattering Start */
+static void headset_det_line_irq_exec(struct work_struct *work)
+{
+	struct delayed_work *delayed_work;
+	struct tabla_priv *tabla;
+	struct tabla *core;
+
+	/* 120606 Voltage Instability Correction Start */
+	AudioIF_HST_Status &= ~AUDIOIF_FAI_INT_LOCK_FLAG;
+	/* 120606 Voltage Instability Correction End */
+
+	delayed_work = to_delayed_work(work);
+	tabla = container_of(delayed_work, struct tabla_priv, chattering_dwork);
+
+	pr_debug("%s: enter \n", __func__);
+
+	if (tabla)
+	{
+		/* 120329 Coverity Check */
+		core = dev_get_drvdata(tabla->codec->dev->parent);
+		/* 120329 Coverity Check */
+
+		/* GPIO Level Check */
+		if (gpio_get_value(AUDIOIF_HPH_GPIO) == 0)
+		{
+			/* Insert interrupt */
+			if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+			{
+				pr_debug("%s: Interrupt status is no changed (LOW) \n", __func__);
+				/* 120323 3.5 headset bias polling stop avoid start */
+				if ((AudioIF_HST_Status & AUDIOIF_FAI_MIC_SET_FLAG) > 0)
+				{
+					pr_err("%s: Interrupt status is no changed(RESETTING) \n", __func__);
+					snd_soc_write(tabla->codec, TABLA_A_CDC_MBHC_EN_CTL, 0x1);
+				}
+				/* 120323 3.5 headset bias polling stop avoid end */
+				tabla_unlock_sleep(core);
+				return;
+			}
+
+			AudioIF_HST_Status |= AUDIOIF_USE_FAI_FLAG;
+
+			AudioIF_HST_Status |= AUDIOIF_DET_INS_FLAG;
+			tabla_hs_insert_irq(0, tabla);
+			AudioIF_HST_Status &= ~AUDIOIF_DET_INS_FLAG;
+		}
+		else
+		{
+			/* Remove Interrupt */
+			if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0)
+			{
+				pr_debug("%s: Interrupt status is no changed (Hi) \n", __func__);
+				tabla_unlock_sleep(core);
+				return;
+			}
+
+			AudioIF_HST_Status |= AUDIOIF_DET_REM_FLAG;
+
+			/* 120323 3.5 HEADPHONE(no mic) remove API change start */
+			if ( ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+			  && ((AudioIF_HST_Status & AUDIOIF_FAI_MIC_SET_FLAG) > 0) )
+			{
+				/* with mic removal */
+				tabla_hs_remove_irq(0, tabla);
+			}
+			else
+			{
+				/* no mic removal */
+				tabla_hs_insert_irq(0, tabla);
+
+				AudioIF_HST_Status &= ~AUDIOIF_DET_REM_FLAG;
+
+				AudioIF_HST_Status &= ~AUDIOIF_USE_FAI_FLAG;
+
+				/* 120411 earphone detect diag Earphone Status update  */
+				earjack_sts = AudioIF_HST_Status;
+			}
+			/* 120323 3.5 HEADPHONE(no mic) remove API change end */
+		}
+
+		/* 120329 Coverity Check */
+		tabla_unlock_sleep(core);
+		/* 120329 Coverity Check */
+	}
+	else
+	{
+		pr_err("%s: Bad tabla private data\n", __func__);
+	}
+}
+/* 120308 3.5 headset_chattering End */
 
 void tabla_mbhc_cal(struct snd_soc_codec *codec)
 {
@@ -4422,7 +4683,7 @@ static int tabla_get_button_mask(const int btn)
 	return mask;
 }
 
-static irqreturn_t tabla_dce_handler(int irq, void *data)
+irqreturn_t tabla_dce_handler(int irq, void *data)
 {
 	int i, mask;
 	short dce, sta;
@@ -4470,14 +4731,17 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 		 priv->mbhc_micbias_switched);
 	mv_s = vddio ? tabla_scale_v_micb_vddio(priv, mv, false) : mv;
 
+	/* 120406 USB Earphone Button Push Start */
+	if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+	{
 	if (mbhc_status != TABLA_MBHC_STATUS_REL_DETECTION) {
 		if (priv->mbhc_last_resume &&
 		    !time_after(jiffies, priv->mbhc_last_resume + HZ)) {
-			pr_debug("%s: Button is already released shortly after "
+			pr_err("%s: Button is already released shortly after "
 				 "resume\n", __func__);
 			n_btn_meas = 0;
 		} else {
-			pr_debug("%s: Button is already released without "
+			pr_err("%s: Button is already released without "
 				 "resume", __func__);
 			sta = tabla_codec_read_sta_result(codec);
 			stamv_s = tabla_codec_sta_dce_v(codec, 0, sta);
@@ -4492,59 +4756,99 @@ static irqreturn_t tabla_dce_handler(int irq, void *data)
 		}
 	}
 
-	/* determine pressed button */
-	btnmeas[meas++] = tabla_determine_button(priv, mv_s);
-	pr_debug("%s: meas %d - DCE %d,%d,%d button %d\n", __func__,
-		 meas - 1, dce, mv, mv_s, btnmeas[meas - 1]);
-	if (n_btn_meas == 0)
-		btn = btnmeas[0];
-	for (; ((d->n_btn_meas) && (meas < (d->n_btn_meas + 1))); meas++) {
-		dce = tabla_codec_sta_dce(codec, 1, false);
-		mv = tabla_codec_sta_dce_v(codec, 1, dce);
-		mv_s = vddio ? tabla_scale_v_micb_vddio(priv, mv, false) : mv;
+		/* Mic Switch Flag Set */
+		AudioIF_HST_Status |= AUDIOIF_FAI_MIC_PUSH_FLAG;
 
-		btnmeas[meas] = tabla_determine_button(priv, mv_s);
-		pr_debug("%s: meas %d - DCE %d,%d,%d button %d\n",
-			 __func__, meas, dce, mv, mv_s, btnmeas[meas]);
-		/* if large enough measurements are collected,
-		 * start to check if last all n_btn_con measurements were
-		 * in same button low/high range */
-		if (meas + 1 >= d->n_btn_con) {
-			for (i = 0; i < d->n_btn_con; i++)
-				if ((btnmeas[meas] < 0) ||
-				    (btnmeas[meas] != btnmeas[meas - i]))
+		/* determine pressed button */
+		btnmeas[meas++] = tabla_determine_button(priv, mv_s);
+		pr_debug("%s: meas %d - DCE %d,%d,%d button %d\n", __func__,
+			 meas - 1, dce, mv, mv_s, btnmeas[meas - 1]);
+		if (n_btn_meas == 0)
+			btn = btnmeas[0];
+		for (; ((d->n_btn_meas) && (meas < (d->n_btn_meas + 1))); meas++) {
+			dce = tabla_codec_sta_dce(codec, 1, false);
+			mv = tabla_codec_sta_dce_v(codec, 1, dce);
+			mv_s = vddio ? tabla_scale_v_micb_vddio(priv, mv, false) : mv;
+
+			btnmeas[meas] = tabla_determine_button(priv, mv_s);
+			pr_debug("%s: meas %d - DCE %d,%d,%d button %d\n",
+				 __func__, meas, dce, mv, mv_s, btnmeas[meas]);
+			/* if large enough measurements are collected,
+			 * start to check if last all n_btn_con measurements were
+			 * in same button low/high range */
+			if (meas + 1 >= d->n_btn_con) {
+				for (i = 0; i < d->n_btn_con; i++)
+					if ((btnmeas[meas] < 0) ||
+					    (btnmeas[meas] != btnmeas[meas - i]))
+						break;
+				if (i == d->n_btn_con) {
+					/* button pressed */
+					btn = btnmeas[meas];
 					break;
-			if (i == d->n_btn_con) {
-				/* button pressed */
-				btn = btnmeas[meas];
-				break;
-			} else if ((n_btn_meas - meas) < (d->n_btn_con - 1)) {
-				/* if left measurements are less than n_btn_con,
-				 * it's impossible to find button number */
-				break;
+				} else if ((n_btn_meas - meas) < (d->n_btn_con - 1)) {
+					/* if left measurements are less than n_btn_con,
+					 * it's impossible to find button number */
+					break;
+				}
 			}
 		}
+  
+      	if (btn >= 0) {
+      		if (priv->in_gpio_handler) {
+      			pr_debug("%s: GPIO already triggered, ignore button "
+      				 "press\n", __func__);
+      			goto done;
+      		}
+      		mask = tabla_get_button_mask(btn);
+      		priv->buttons_pressed |= mask;
+      		tabla_lock_sleep(core);
+      		if (schedule_delayed_work(&priv->mbhc_btn_dwork,
+      					  msecs_to_jiffies(400)) == 0) {
+      			WARN(1, "Button pressed twice without release"
+      			     "event\n");
+      			tabla_unlock_sleep(core);
+      		}
+      	} else {
+      		pr_debug("%s: bogus button press, too short press?\n",
+      			 __func__);
+      	}
 	}
-
-	if (btn >= 0) {
-		if (priv->in_gpio_handler) {
-			pr_debug("%s: GPIO already triggered, ignore button "
-				 "press\n", __func__);
-			goto done;
+	else if ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) > 0)
+	{
+		/* 120308 wakeup USB Earphone Mic Detect Start */
+		if((AudioIF_HST_Status & AUDIOIF_MIC_PUSH_INT_FLAG) > 0)
+		{
+			/* USB Button Push Flag Down */
+			AudioIF_HST_Status &= ~AUDIOIF_MIC_PUSH_INT_FLAG;
+			/* From USB Driver Intterrupt */
+			AudioIF_HST_Status |= AUDIOIF_MIC_PUSH_FLAG;
 		}
-		mask = tabla_get_button_mask(btn);
-		priv->buttons_pressed |= mask;
+		else
+		{
+      		pr_debug("%s: MBHC Interrupt no use \n", __func__);
+			/* MBHC Intterrupt No USE */
+  			goto done;
+		}
+		/* 120308 wakeup USB Earphone Mic Detect End */
+
 		tabla_lock_sleep(core);
+
+		/* USB Earphone Multi Button Un-corresponding */
+
+		priv->buttons_pressed |= SND_JACK_BTN_0;
+		msleep(100);
+
 		if (schedule_delayed_work(&priv->mbhc_btn_dwork,
-					  msecs_to_jiffies(400)) == 0) {
-			WARN(1, "Button pressed twice without release"
-			     "event\n");
+					  msecs_to_jiffies(400)) == 0)
+		{
+			WARN(1, "Button pressed twice without release event\n");
 			tabla_unlock_sleep(core);
 		}
-	} else {
-		pr_debug("%s: bogus button press, too short press?\n",
-			 __func__);
 	}
+	/* 120406 USB Earphone Button Push End */
+
+	/* 120203 Headset Detect DIAG */
+	earjack_sts = AudioIF_HST_Status;
 
  done:
 	pr_debug("%s: leave\n", __func__);
@@ -4589,11 +4893,33 @@ static int tabla_is_fake_press(struct tabla_priv *priv)
 	return r;
 }
 
-static irqreturn_t tabla_release_handler(int irq, void *data)
+irqreturn_t tabla_release_handler(int irq, void *data)
 {
 	int ret;
 	struct tabla_priv *priv = data;
 	struct snd_soc_codec *codec = priv->codec;
+	/* 120110 Headset Detect (GPIO 19) start */
+	if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+	{
+		/* Mic Switch Flag Set */
+		AudioIF_HST_Status &= ~AUDIOIF_FAI_MIC_PUSH_FLAG;
+	}
+	else if ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) > 0)
+	{
+		/* 120308 wakeup USB Earphone Mic Detect Start */
+		if((AudioIF_HST_Status & AUDIOIF_MIC_REL_INT_FLAG) > 0)
+		{
+			/* From USB Driver Interrupt */
+			AudioIF_HST_Status &= ~AUDIOIF_MIC_PUSH_FLAG;
+		}
+		else
+		{
+			/* MBHC Interrupt No USE */
+			return IRQ_HANDLED;
+		}
+		/* 120308 wakeup USB Earphone Mic Detect End */
+	}
+	/* 120110 Headset Detect (GPIO 19) end */
 
 	pr_debug("%s: enter\n", __func__);
 
@@ -4646,6 +4972,13 @@ static irqreturn_t tabla_release_handler(int irq, void *data)
 
 	pr_debug("%s: leave\n", __func__);
 	TABLA_RELEASE_LOCK(priv->codec_resource_lock);
+
+	/* USB Button Release Flag Down */
+	AudioIF_HST_Status &= ~AUDIOIF_MIC_REL_INT_FLAG;
+
+	/* 120203 Headset Detect DIAG */
+	earjack_sts = AudioIF_HST_Status;
+
 	return IRQ_HANDLED;
 }
 
@@ -4760,16 +5093,35 @@ static bool tabla_is_invalid_insertion_range(struct snd_soc_codec *codec,
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
 	bool invalid = false;
 	s16 v_hs_max;
+/* 20120518 Earphone detection in loopback chg start */
+	u8 cfilt_mode;
+
+	cfilt_mode = snd_soc_read(codec, tabla->mbhc_bias_regs.cfilt_ctl);
+/* 20120518 Earphone detection in loopback chg end */
 
 	/* Perform this check only when the high voltage headphone
 	 * needs to be considered as invalid
 	 */
 	v_hs_max = tabla_get_current_v_hs_max(tabla);
-	if (!highhph && (mic_volt > v_hs_max))
-		invalid = true;
-	else if (mic_volt < tabla->mbhc_data.v_inval_ins_high &&
-		 (mic_volt > tabla->mbhc_data.v_inval_ins_low))
-		invalid = true;
+/* 20120518 Earphone detection in loopback chg end */
+
+/* 20120509 1044-1048base chg repere start. */
+	if ( ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)
+	  && (!(cfilt_mode & 0x80)) )
+	{
+		if (!highhph && (mic_volt > v_hs_max))
+			invalid = true;
+		else if (mic_volt < tabla->mbhc_data.v_inval_ins_high &&
+			 (mic_volt > tabla->mbhc_data.v_inval_ins_low))
+			invalid = true;
+	}
+	else
+	{
+		/* in loopback, or USB Earphone detect, It does not judge.  */
+		pr_debug("%s: judge avoid cfilt_ctl=%x\n", __func__,cfilt_mode );
+	}
+/* 20120509 1044-1048base chg repere end. */
+	
 	return invalid;
 }
 
@@ -4778,9 +5130,24 @@ static bool tabla_is_inval_insert_delta(struct snd_soc_codec *codec,
 					int threshold)
 {
 	int delta = abs(mic_volt - mic_volt_prev);
-	if (delta > threshold) {
-		pr_debug("%s: volt delta %dmv\n", __func__, delta);
-		return true;
+/* 20120518 Earphone detection in loopback chg start */
+	u8 cfilt_mode;
+	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+
+	cfilt_mode = snd_soc_read(codec, tabla->mbhc_bias_regs.cfilt_ctl);
+/* 20120518 Earphone detection in loopback chg end */
+
+	if( (!(cfilt_mode & 0x80)) )
+	{
+		if (delta > threshold) {
+			pr_debug("%s: volt delta %dmv\n", __func__, delta);
+			return true;
+		}
+	}
+	else
+	{
+		/* in loopback, It does not judge.  */
+		pr_debug("%s: judge avoid cfilt_ctl=%x\n", __func__,cfilt_mode );
 	}
 	return false;
 }
@@ -5086,11 +5453,22 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 	 * tabla_codec_setup_hs_polling requires override on */
 	tabla_turn_onoff_override(codec, true);
 
-	if (plug_det->t_ins_complete > 20)
-		msleep(plug_det->t_ins_complete);
+
+	/* 120323 USB Earphone bias wait change start */
+	if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0)
+	{
+		/* USB Mic waittime */
+		msleep(chattering_time);
+	}
 	else
-		usleep_range(plug_det->t_ins_complete * 1000,
-			     plug_det->t_ins_complete * 1000);
+	{
+    	if (plug_det->t_ins_complete > 20)
+    		msleep(plug_det->t_ins_complete);
+    	else
+    		usleep_range(plug_det->t_ins_complete * 1000,
+    			     plug_det->t_ins_complete * 1000);
+	}
+	/* 120323 USB Earphone bias wait change end */
 
 	if (tabla->mbhc_cfg.gpio) {
 		/* Turn off the override */
@@ -5107,7 +5485,11 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 						     true : false);
 	tabla_turn_onoff_override(codec, false);
 
-	if (plug_type == PLUG_TYPE_INVALID) {
+	/* 20120509 1044-1048base chg repere start. */
+	if ((plug_type == PLUG_TYPE_INVALID)
+	  && ( ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) > 0)) )
+    {
+	/* 20120509 1044-1048base chg repere end. */
 		pr_debug("%s: Invalid plug type detected\n", __func__);
 		snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_B1_CTL,
 				    0x02, 0x02);
@@ -5115,11 +5497,27 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 		tabla_codec_enable_hs_detect(codec, 1,
 					     MBHC_USE_MB_TRIGGER |
 					     MBHC_USE_HPHL_TRIGGER, false);
+
+		/* 20120531 3.5 Earphone detect NG Recovery start. */
+		AudioIF_HST_Status &= ~AUDIOIF_USE_FAI_FLAG;
+		/* 20120531 3.5 Earphone detect NG Recovery end. */
+
 	} else if (plug_type == PLUG_TYPE_HEADPHONE) {
 		pr_debug("%s: Headphone Detected\n", __func__);
 		tabla_codec_report_plug(codec, 1, SND_JACK_HEADPHONE);
 		tabla_codec_cleanup_hs_polling(codec);
 		tabla_codec_enable_hs_detect(codec, 0, 0, false);
+		/* 120406 Earphone mic Flag Setting start */
+		if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0)
+		{
+			AudioIF_HST_Status &= ~AUDIOIF_MIC_SET_FLAG;
+		}
+		else
+		{
+			AudioIF_HST_Status &= ~AUDIOIF_FAI_MIC_SET_FLAG;
+
+		}
+		/* 120406 Earphone mic Flag Setting end */
 	} else if (plug_type == PLUG_TYPE_HEADSET) {
 		pr_debug("%s: Headset detected\n", __func__);
 		tabla_codec_report_plug(codec, 1, SND_JACK_HEADSET);
@@ -5127,7 +5525,24 @@ static void tabla_codec_detect_plug_type(struct snd_soc_codec *codec)
 		/* avoid false button press detect */
 		msleep(50);
 		tabla_codec_start_hs_polling(codec);
+		/* 120406 Earphone mic Flag Setting start */
+		if ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0)
+		{
+			AudioIF_HST_Status |= AUDIOIF_MIC_SET_FLAG;
+
+		}
+		else
+		{
+			AudioIF_HST_Status |= AUDIOIF_FAI_MIC_SET_FLAG;
+		}
+		/* 120406 Earphone mic Flag Setting end */
 	}
+
+	/* USB Interrupt Under a setup flag reset */
+	AudioIF_HST_Status &= ~AUDIOIF_MIC_DET_FLAG;
+
+	/* 120406 Headset Detect DIAG */
+	earjack_sts = AudioIF_HST_Status;
 }
 
 /* called only from interrupt which is under codec_resource_lock acquisition */
@@ -5166,7 +5581,9 @@ static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
 	struct snd_soc_codec *codec = priv->codec;
 	struct tabla *core = dev_get_drvdata(priv->codec->dev->parent);
 
-	if (is_removal) {
+	/* 120323 3.5 HEADPHONE(no mic) remove API change */
+	if ((AudioIF_HST_Status & AUDIOIF_DET_REM_FLAG) > 0 )
+	{
 		/* cancel possiblely running hs detect work */
 		tabla_cancel_hs_detect_plug(priv);
 
@@ -5185,14 +5602,16 @@ static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
 		pr_debug("%s: Waiting for Headphone left trigger\n",
 			__func__);
 		tabla_lock_sleep(core);
+
+		tabla_codec_enable_hs_detect(codec, 1, MBHC_USE_HPHL_TRIGGER,
+					     false);
+
 		if (schedule_delayed_work(&priv->mbhc_insert_dwork,
-					  usecs_to_jiffies(1000000)) == 0) {
+					  usecs_to_jiffies(0)) == 0) {
 			pr_err("%s: mbhc_insert_dwork is already scheduled\n",
 			       __func__);
 			tabla_unlock_sleep(core);
 		}
-		tabla_codec_enable_hs_detect(codec, 1, MBHC_USE_HPHL_TRIGGER,
-					     false);
 	} else  {
 		ret = cancel_delayed_work(&priv->mbhc_insert_dwork);
 		if (ret != 0) {
@@ -5209,7 +5628,7 @@ static void tabla_hs_insert_irq_nogpio(struct tabla_priv *priv, bool is_removal,
 	}
 }
 
-static irqreturn_t tabla_hs_insert_irq(int irq, void *data)
+irqreturn_t tabla_hs_insert_irq(int irq, void *data)
 {
 	bool is_mb_trigger, is_removal;
 	struct tabla_priv *priv = data;
@@ -5223,6 +5642,32 @@ static irqreturn_t tabla_hs_insert_irq(int irq, void *data)
 					0x10);
 	is_removal = !!(snd_soc_read(codec, TABLA_A_CDC_MBHC_INT_CTL) & 0x02);
 	snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_INT_CTL, 0x03, 0x00);
+
+	/* No Mic detection */
+	if( ((AudioIF_HST_Status & AUDIOIF_MIC_DET_FLAG) == 0) &&
+	    ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0) &&
+	    ((AudioIF_HST_Status & AUDIOIF_DET_REM_FLAG) == 0) &&
+	    ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) >  0) )
+	{
+		/* Mic Detection unneeded */
+		pr_debug("%s:  No Mic Detection \n", __func__);
+
+		priv->hph_status |= SND_JACK_HEADPHONE;
+
+		AudioIF_HST_Status &= ~AUDIOIF_MIC_SET_FLAG;
+
+	  if (priv->mbhc_cfg.headset_jack)
+		{
+			pr_debug("%s: Reporting insertion %d\n", __func__, SND_JACK_HEADPHONE);
+			tabla_codec_report_plug(codec, 1, SND_JACK_HEADPHONE);
+		}
+
+		tabla_codec_cleanup_hs_polling(codec);
+		tabla_codec_enable_hs_detect(codec, 0, 0, false);
+
+		TABLA_RELEASE_LOCK(priv->codec_resource_lock);
+		return IRQ_HANDLED;
+	}
 
 	/* Turn off both HPH and MIC line schmitt triggers */
 	snd_soc_update_bits(codec, priv->mbhc_bias_regs.mbhc_reg, 0x90, 0x00);
@@ -5349,11 +5794,23 @@ static void tabla_hs_remove_irq_nogpio(struct tabla_priv *priv)
 	    TABLA_MBHC_CAL_GENERAL_PTR(priv->mbhc_cfg.calibration);
 	int min_us = TABLA_FAKE_REMOVAL_MIN_PERIOD_MS * 1000;
 
-	if (priv->current_plug != PLUG_TYPE_HEADSET) {
+/* 20120509 1044-1048base chg repere start. */
+	if ( (priv->current_plug != PLUG_TYPE_HEADSET) 
+	  && ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) ==  0) )
+	{
+/* 20120509 1044-1048base chg repere end. */
 		pr_debug("%s(): Headset is not inserted, ignore removal\n",
 			 __func__);
 		snd_soc_update_bits(codec, TABLA_A_CDC_MBHC_CLK_CTL,
 				    0x08, 0x08);
+
+		AudioIF_HST_Status &= ~AUDIOIF_DET_REM_FLAG;
+
+		AudioIF_HST_Status &= ~AUDIOIF_USE_FAI_FLAG;
+
+		/* 120411 earphone detect diag Earphone Status update  */
+		earjack_sts = AudioIF_HST_Status;
+
 		return;
 	}
 
@@ -5375,7 +5832,10 @@ static void tabla_hs_remove_irq_nogpio(struct tabla_priv *priv)
 		min_us -= priv->mbhc_data.t_dce;
 	} while (min_us > 0);
 
-	if (removed) {
+/* 20120509 1044-1048base chg repere start. */
+	if ( (removed ) || ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) >  0))
+	{
+/* 20120509 1044-1048base chg repere end. */
 		/* cancel possiblely running hs detect work */
 		tabla_cancel_hs_detect_plug(priv);
 		/*
@@ -5391,16 +5851,39 @@ static void tabla_hs_remove_irq_nogpio(struct tabla_priv *priv)
 					     MBHC_USE_MB_TRIGGER |
 					     MBHC_USE_HPHL_TRIGGER,
 					     true);
+
+	/* 20120509 1044-1048base chg repere start. */
+		/* FLAG is turned off when an earphone is extracted */
+		AudioIF_HST_Status &= ~AUDIOIF_FAI_MIC_SET_FLAG;
+		AudioIF_HST_Status &= ~AUDIOIF_FAI_MIC_PUSH_FLAG;
+		AudioIF_HST_Status &= ~AUDIOIF_MIC_SET_FLAG;
+		AudioIF_HST_Status &= ~AUDIOIF_MIC_PUSH_FLAG;
+	/* 20120509 1044-1048base chg repere end. */
+
+		AudioIF_HST_Status &= ~AUDIOIF_DET_REM_FLAG;
+
+		AudioIF_HST_Status &= ~AUDIOIF_USE_FAI_FLAG;
+
+		/* 120411 earphone detect diag Earphone Status update  */
+		earjack_sts = AudioIF_HST_Status;
 	} else {
 		tabla_codec_start_hs_polling(codec);
 	}
 }
 
-static irqreturn_t tabla_hs_remove_irq(int irq, void *data)
+irqreturn_t tabla_hs_remove_irq(int irq, void *data)
 {
 	struct tabla_priv *priv = data;
 	bool vddio;
 	pr_debug("%s: enter, removal interrupt\n", __func__);
+
+/* 20120529 1044-1048base chg repere start. */
+	if((AudioIF_HST_Status & AUDIOIF_DET_REM_FLAG) == 0 )
+	{
+		pr_debug("%s: MBHC interrupt not use\n", __func__);
+		return IRQ_HANDLED;
+	}
+/* 20120529 1044-1048base chg repere end. */
 
 	TABLA_ACQUIRE_LOCK(priv->codec_resource_lock);
 	vddio = (priv->mbhc_data.micb_mv != VDDIO_MICBIAS_MV &&
@@ -5440,6 +5923,19 @@ void mbhc_insert_work(struct work_struct *work)
 	snd_soc_update_bits(codec, tabla->mbhc_bias_regs.ctl_reg, 0x01, 0x00);
 	tabla_disable_irq_sync(codec->control_data, TABLA_IRQ_MBHC_INSERTION);
 	tabla_codec_detect_plug_type(codec);
+	
+	/* 20120531 3.5 Earphone detect NG Recovery start. */
+	if ( ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) == 0)
+	  && ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0) )
+	{
+		pr_debug("%s: Err Detect Recovery \n", __func__);
+		msleep(100);
+
+		AudioIF_HST_Status |= AUDIOIF_USE_FAI_FLAG;
+		tabla_codec_detect_plug_type(codec);
+	}
+	/* 20120531 3.5 Earphone detect NG Recovery end. */
+
 	tabla_unlock_sleep(tabla_core);
 }
 
@@ -5588,7 +6084,6 @@ static int tabla_mbhc_init_and_calibrate(struct tabla_priv *tabla)
 			}
 		}
 	}
-
 	return ret;
 }
 
@@ -5661,6 +6156,11 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 	tabla->in_gpio_handler = false;
 	tabla->current_plug = PLUG_TYPE_NONE;
 	tabla->lpi_enabled = false;
+
+	/* 120329 USB Earphone MONO/STEREO report  */
+	AudioIF_Tabla_headset_jack = tabla->mbhc_cfg.headset_jack;
+	/* 120329 USB Earphone MONO/STEREO report  */
+
 	tabla_get_mbhc_micbias_regs(codec, &tabla->mbhc_bias_regs);
 
 	/* Put CFILT in fast mode by default */
@@ -5668,6 +6168,9 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 			    0x40, TABLA_CFILT_FAST_MODE);
 	INIT_DELAYED_WORK(&tabla->mbhc_firmware_dwork, mbhc_fw_read);
 	INIT_DELAYED_WORK(&tabla->mbhc_btn_dwork, btn_lpress_fn);
+/* 120308 3.5 headset_chattering Start */
+	INIT_DELAYED_WORK(&tabla->chattering_dwork, headset_det_line_irq_exec);
+/* 120308 3.5 headset_chattering End */
 	INIT_WORK(&tabla->hphlocp_work, hphlocp_off_report);
 	INIT_WORK(&tabla->hphrocp_work, hphrocp_off_report);
 	INIT_DELAYED_WORK(&tabla->mbhc_insert_dwork, mbhc_insert_work);
@@ -5677,6 +6180,18 @@ int tabla_hs_detect(struct snd_soc_codec *codec,
 	else
 		schedule_delayed_work(&tabla->mbhc_firmware_dwork,
 				      usecs_to_jiffies(MBHC_FW_READ_TIMEOUT));
+
+/* 120308 wakeup USB Earphone Mic Detect */
+	if( ((AudioIF_HST_Status & AUDIOIF_MIC_DET_FLAG) == 0) &&
+	    ((AudioIF_HST_Status & AUDIOIF_USE_FAI_FLAG) == 0) &&
+	    ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) >  0) )
+	{
+		/* The notice of AudioDriver Starting Infomation is sent to USB Driver. */
+		/* Since it is required USB Insert again, a flag is dropped. */
+		AudioIF_HST_Status &= ~AUDIOIF_USE_USB_FLAG;
+		usb_sw_path_initialize();
+	}
+/* 120308 wakeup USB Earphone Mic Detect */
 
 	return rc;
 }
@@ -6138,6 +6653,26 @@ static const struct file_operations codec_mbhc_debug_ops = {
 };
 #endif
 
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+#include <sound/codec_diag.h>
+int codec_cal1 = 0;
+int codec_cal2 = 0;
+int codec_cal3 = 0;
+module_param(codec_cal1, int, 0444);
+module_param(codec_cal2, int, 0444);
+module_param(codec_cal3, int, 0444);
+struct tabla_priv *codec_diag;
+static int tabla_cal_vol(struct snd_soc_codec *ssc, unsigned int reg)
+{
+	pr_debug("%s r:%d", __func__, reg);
+	if(reg == TABLA_A_CDC_RX1_VOL_CTL_B2_CTL) return codec_cal1;
+	if(reg == TABLA_A_CDC_TX6_VOL_CTL_GAIN) return codec_cal2;
+	if(reg == TABLA_A_CDC_TX4_VOL_CTL_GAIN) return codec_cal3;
+
+	return 0;
+}
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
 static int tabla_codec_probe(struct snd_soc_codec *codec)
 {
 	struct tabla *control;
@@ -6145,6 +6680,9 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret = 0;
 	int i;
+	/* 120110 Headset Detect (GPIO 19) start */
+	void (* callback_insert)(void);
+	/* 120110 Headset Detect (GPIO 19) end */
 
 	codec->control_data = dev_get_drvdata(codec->dev->parent);
 	control = codec->control_data;
@@ -6238,6 +6776,7 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 
 	snd_soc_dapm_sync(dapm);
 
+
 	ret = tabla_request_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION,
 		tabla_hs_insert_irq, "Headset insert detect", tabla);
 	if (ret) {
@@ -6314,8 +6853,72 @@ static int tabla_codec_probe(struct snd_soc_codec *codec)
 	}
 #endif
 
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	codec_diag = tabla;
+#endif/*  CONFIG_FEATURE_NCMC_AUDIO */
+
+	/* 120110 Headset Detect (GPIO 19) start */
+	/* GPIO 19 Interrupt Handler Setting */
+	ret = request_threaded_irq(gpio_to_irq(AUDIOIF_HPH_GPIO), NULL,
+	                           headset_det_line_irq,
+	                           IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING |
+	                           IRQF_ONESHOT, "hsdet-gpio", tabla);
+	if (ret) {
+		pr_err("%s: Failed to hsdet-gpio irq %d\n", __func__,gpio_to_irq(AUDIOIF_HPH_GPIO));
+		AudioIF_HST_Status |= AUDIOIF_DRIVER_ERR_FLAG;
+		goto err_hsdet_irq;
+	}
+	else
+	{
+		enable_irq_wake(gpio_to_irq(AUDIOIF_HPH_GPIO) );
+	
+		if(ret)
+		{
+			pr_err("%s: Failed to enable_irq_wake \n", __func__ );
+		}
+	}
+
+	/* Interrupt No Setting */
+	AudioIF_Tabla_Irq_Insert  = control->irq_base + TABLA_IRQ_MBHC_INSERTION;
+	AudioIF_Tabla_Irq_Remove  = control->irq_base + TABLA_IRQ_MBHC_REMOVAL;
+	AudioIF_Tabla_Irq_Push    = control->irq_base + TABLA_IRQ_MBHC_POTENTIAL;
+	AudioIF_Tabla_Irq_Release = control->irq_base + TABLA_IRQ_MBHC_RELEASE;
+	AudioIF_Tabla_Priv     = tabla;
+
+	/* Headset Status Setting */
+	AudioIF_Tabla_hph_status   = &tabla->hph_status;
+
+#if defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_RUBY) /* 3.5earphone only */
+	if (gpio_get_value(AUDIOIF_HPH_GPIO) == 0)
+	{
+		pr_debug("%s: wakeup TABLA_IRQ_MBHC_INSERTION \n", __func__);
+		AudioIF_HST_Status |= AUDIOIF_USE_FAI_FLAG;
+		tabla_enable_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION);
+	}
+	else if ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) > 0)
+#else /* CONFIG_FEATURE_NCMC_D121M */  /* 3.5earphone only */
+	if ((AudioIF_HST_Status & AUDIOIF_USE_USB_FLAG) > 0)
+#endif /* CONFIG_FEATURE_NCMC_D121M */  /* 3.5earphone only */
+	{
+		pr_err("%s: wakeup USB Inserted \n", __func__);
+
+		if (AudioIF_Callback_Insert != NULL)
+		{
+			callback_insert = (*AudioIF_Callback_Insert);
+			callback_insert();
+		}
+	}
+
+	AudioIF_HST_Status |= AUDIOIF_DRIVER_START_FLAG;
+	earjack_sts = AudioIF_HST_Status;
+	/* 120110 Headset Detect (GPIO 19) end */
+
 	return ret;
 
+/* 120110 Headset Detect (GPIO 19) start */
+err_hsdet_irq:
+	free_irq(gpio_to_irq(AUDIOIF_HPH_GPIO), tabla);
+/* 120110 Headset Detect (GPIO 19) end */
 err_hphr_ocp_irq:
 	tabla_free_irq(codec->control_data, TABLA_IRQ_HPH_PA_OCPL_FAULT, tabla);
 err_hphl_ocp_irq:
@@ -6330,6 +6933,9 @@ err_remove_irq:
 	tabla_free_irq(codec->control_data, TABLA_IRQ_MBHC_INSERTION, tabla);
 err_insert_irq:
 err_pdata:
+	/* 120203 Headset Detect DIAG */
+	AudioIF_HST_Status |= AUDIOIF_DRIVER_ERR_FLAG;
+	earjack_sts = AudioIF_HST_Status;
 	mutex_destroy(&tabla->codec_resource_lock);
 	kfree(tabla);
 	return ret;
@@ -6337,6 +6943,9 @@ err_pdata:
 static int tabla_codec_remove(struct snd_soc_codec *codec)
 {
 	struct tabla_priv *tabla = snd_soc_codec_get_drvdata(codec);
+	/* 120110 Headset Detect (GPIO 19) start */
+	free_irq(gpio_to_irq(AUDIOIF_HPH_GPIO), tabla);
+	/* 120110 Headset Detect (GPIO 19) end */
 	tabla_free_irq(codec->control_data, TABLA_IRQ_SLIMBUS, tabla);
 	tabla_free_irq(codec->control_data, TABLA_IRQ_MBHC_RELEASE, tabla);
 	tabla_free_irq(codec->control_data, TABLA_IRQ_MBHC_POTENTIAL, tabla);
@@ -6364,11 +6973,122 @@ static struct snd_soc_codec_driver soc_codec_dev_tabla = {
 
 	.readable_register = tabla_readable,
 	.volatile_register = tabla_volatile,
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	.cal_volume = tabla_cal_vol,
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 
 	.reg_cache_size = TABLA_CACHE_SIZE,
 	.reg_cache_default = tabla_reg_defaults,
 	.reg_word_size = 1,
 };
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+static long codec_diag_ioctl(struct file *f,
+                unsigned int cmd, unsigned long arg)
+{
+	struct codec_diag_ctl	param = {0};
+	s32 result = 0;
+
+	if (arg == 0) {
+		pr_err("%s: No data sent to driver!\n", __func__);
+		result = -EFAULT;
+		goto done;
+	}
+	if(copy_from_user(&param, (void *)arg, sizeof(struct codec_diag_ctl))) {
+		printk("%s: Copy to user failed! buf = 0x%x\n",	__func__, (unsigned int)arg);
+		result = -EFAULT;
+		goto done;
+	}
+
+	switch (cmd) {
+	case AUDIO_SET_CODEC_WRITE:
+		pr_debug("codec_diag_ioctl w r:%x m:%x v:%x \n", param.ctl1, param.ctl3, param.ctl2);
+		snd_soc_update_bits(codec_diag->codec, param.ctl1, param.ctl3, (param.ctl3 & param.ctl2));
+		break;
+
+	case AUDIO_GET_CODEC_READ:
+	{
+		param.ctl2 = tabla_read(codec_diag->codec,  param.ctl1);
+		pr_debug("codec_diag_ioctl r:%x v:%x \n", param.ctl1, param.ctl2);
+		if(copy_to_user((void *)arg, &param, sizeof(struct codec_diag_ctl))) {
+			printk("%s: Copy from user failed! buf = 0x%x\n",	__func__, (unsigned int)arg);
+			result = -EFAULT;
+			goto done;
+		}
+	}
+		break;
+
+	case AUDIO_SET_CODEC_VOL_CAL:
+	{
+		signed char adj, buf;
+		unsigned int add;
+		pr_debug("codec_diag_ioctl r:%x v:%x \n", param.ctl1, param.ctl2);
+		switch(param.ctl1){
+		case 0x00:
+			adj = codec_cal1 = param.ctl2;
+			add = TABLA_A_CDC_RX1_VOL_CTL_B2_CTL;
+			break;
+		case 0x01:
+			adj = codec_cal2 = param.ctl2;
+			add = TABLA_A_CDC_TX6_VOL_CTL_GAIN;
+			break;
+		case 0x02:
+			adj = codec_cal3 = param.ctl2;
+			add = TABLA_A_CDC_TX4_VOL_CTL_GAIN;
+			break;
+		default:
+			pr_err("%s: Invalid %d!\n",__func__, param.ctl1);
+			result = -EFAULT;
+			goto done;
+			break;
+		}
+		buf = (signed char)tabla_read(codec_diag->codec, add);
+		pr_debug("codec_ioctl %d %d \n", (signed char)buf, (signed char)adj);
+		buf += (signed char)adj;
+		if((signed char)buf > (signed char)0x28) {
+			pr_debug("codec_ioctl MAX OVER \n");
+			buf = 0x28;
+		}else if((signed char)buf < (signed char)0xac) {
+			pr_debug("codec_ioctl MIN UNDER \n");
+			buf = 0xac;
+		}
+		tabla_write(codec_diag->codec, add, buf);
+
+	}
+	break;
+
+	default:
+		pr_err("%s: Invalid IOCTL, command = %d!\n",__func__, cmd);
+	}
+done:
+	return result;
+}
+
+static int codec_diag_open(struct inode *inode, struct file *file)
+{
+	printk(KERN_INFO "codec_diag_ioctl\n");
+	return 0;
+}
+
+static int codec_diag_release(struct inode *inode, struct file *f)
+{
+        pr_debug("%s\n", __func__);
+        return 0;
+}
+
+static const struct file_operations codec_diag_fops = {
+	.owner = THIS_MODULE,
+	.open = codec_diag_open,
+	.release = codec_diag_release,
+	.unlocked_ioctl = codec_diag_ioctl,
+};
+
+struct miscdevice codec_diag_misc = {
+	.minor  = MISC_DYNAMIC_MINOR,
+	.name   = "codec_diag",
+	.fops   = &codec_diag_fops,
+};
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 
 #ifdef CONFIG_PM
 static int tabla_suspend(struct device *dev)
@@ -6401,6 +7121,11 @@ static int __devinit tabla_probe(struct platform_device *pdev)
 	else if (tabla_get_intf_type() == TABLA_INTERFACE_TYPE_I2C)
 		ret = snd_soc_register_codec(&pdev->dev, &soc_codec_dev_tabla,
 			tabla_i2s_dai, ARRAY_SIZE(tabla_i2s_dai));
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	misc_register(&codec_diag_misc);
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
 	return ret;
 }
 static int __devexit tabla_remove(struct platform_device *pdev)
@@ -6451,6 +7176,36 @@ static void __exit tabla_codec_exit(void)
 
 module_init(tabla_codec_init);
 module_exit(tabla_codec_exit);
+
+/* 120110 Headset Detect (GPIO 19) start */
+/*
+ * GPIO 19 Interrupt Handler
+ */
+static irqreturn_t headset_det_line_irq(int irq, void *data)
+{
+/* 120308 3.5 headset_chattering Start */
+	struct tabla_priv    *priv = data;
+	int ret = 0;
+	struct tabla *core = dev_get_drvdata(priv->codec->dev->parent);
+
+/* 120606 Voltage Instability Correction Start */
+	if ((AudioIF_HST_Status & AUDIOIF_FAI_INT_LOCK_FLAG) == 0)
+	{
+		pr_debug("%s: tabla_lock_sleep() \n", __func__);
+
+		AudioIF_HST_Status |= AUDIOIF_FAI_INT_LOCK_FLAG;
+		tabla_lock_sleep(core);
+	}
+/* 120606 Voltage Instability Correction End */
+
+	ret = cancel_delayed_work(&priv->chattering_dwork);
+	schedule_delayed_work(&priv->chattering_dwork,
+		                      msecs_to_jiffies(chattering_time));
+/* 120308 3.5 headset_chattering End */
+
+	return IRQ_HANDLED;
+}
+/* 120110 Headset Detect (GPIO 19) end */
 
 MODULE_DESCRIPTION("Tabla codec driver");
 MODULE_VERSION("1.0");

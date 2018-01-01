@@ -10,10 +10,15 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 /*
  * SOC Info Routines
  *
  */
+
 
 #include <linux/types.h>
 #include <linux/sysdev.h>
@@ -21,6 +26,10 @@
 #include <mach/socinfo.h>
 
 #include "smd_private.h"
+
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+#include "linux/oemnc_info.h"
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
 
 #define BUILD_ID_LENGTH 32
 
@@ -779,3 +788,37 @@ const int cpu_is_krait_v1(void)
 		return 0;
 	};
 }
+
+#if (defined(CONFIG_FEATURE_NCMC_NEC) || defined(CONFIG_FEATURE_NCMC_HITACHI) || defined(CONFIG_FEATURE_NCMC_CASIO))
+/*==========================================================================
+
+  FUNCTION      hw_revision_read
+
+  DESCRIPTION   HW revision information is got from SMEM.
+
+  PARAMETERS    None.
+
+  DEPENDENCIES  None.
+
+  RETURN VALUE  Success : HW revision
+                     higher 16bit : Major number
+                      lower 16bit : Minor number
+
+                   Fail : HW_REVISION_READ_ERR
+
+==========================================================================*/
+uint32_t hw_revision_read(void)
+{
+	struct socinfo_v6  *p_socinfo_v6;
+	p_socinfo_v6 = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v6));
+
+	if (!p_socinfo_v6) {
+		pr_info("Type of SOCINFO is not v6. Can't return HW REVION!\n");
+		return HW_REVISION_READ_ERR;
+	}
+	return p_socinfo_v6->v5.v4.platform_version;
+}
+EXPORT_SYMBOL(hw_revision_read);
+#endif /* CONFIG_FEATURE_NCMC_NEC || CONFIG_FEATURE_NCMC_HITACHI || CONFIG_FEATURE_NCMC_CASIO */
+
+

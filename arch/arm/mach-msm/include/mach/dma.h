@@ -13,6 +13,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __ASM_ARCH_MSM_DMA_H
 #define __ASM_ARCH_MSM_DMA_H
@@ -185,6 +189,14 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 
 #define DMOV_HSUART_GSBI6_RX_CHAN	8
 #define DMOV_HSUART_GSBI6_RX_CRCI	11
+
+#if defined(CONFIG_FEATURE_NCMC_FELICA) || defined(CONFIG_FEATURE_NCMC_IRDA)
+#define DMOV_HSUART_GSBI10_TX_CHAN	10
+#define DMOV_HSUART_GSBI10_TX_CRCI	15
+
+#define DMOV_HSUART_GSBI10_RX_CHAN	9
+#define DMOV_HSUART_GSBI10_RX_CRCI	14
+#endif
 
 #elif defined(CONFIG_ARCH_MSM9615)
 

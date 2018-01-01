@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef MSM_SENSOR_H
 #define MSM_SENSOR_H
@@ -21,6 +25,9 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+/* PM_OBS */
+#include <linux/pm_obs_api.h>
+/* PM_OBS */
 #include <mach/camera.h>
 #include <mach/gpio.h>
 #include <media/msm_camera.h>
@@ -33,6 +40,8 @@
 #define MSM_SENSOR_MCLK_8HZ 8000000
 #define MSM_SENSOR_MCLK_16HZ 16000000
 #define MSM_SENSOR_MCLK_24HZ 24000000
+#define MSM_SENSOR_MCLK_25HZ 25600000
+#define MSM_SENSOR_MCLK_30HZ 30000000
 
 enum msm_sensor_reg_update {
 	/* Sensor egisters that need to be updated during initialization */
@@ -135,6 +144,25 @@ struct msm_sensor_fn_t {
 	int32_t (*sensor_match_id)(struct msm_sensor_ctrl_t *s_ctrl);
 	int (*sensor_adjust_frame_lines)
 		(struct msm_sensor_ctrl_t *s_ctrl, uint16_t res);
+
+    /* PM_OBS */
+    int (*sensor_set_parm_pm_obs) (ncmc_pm_obs_data_t pm_obs);
+    /* PM_OBS */
+    int32_t (*sensor_set_scene) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_set_pict_size) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_set_wb) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_set_effect) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_set_antibanding) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_set_exp_compensation) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_get_maker_note) (struct msm_sensor_ctrl_t *, struct get_exif_maker_note_cfg *get_exif_maker_note);
+    int32_t (*sensor_get_exif_param) (struct msm_sensor_ctrl_t *, struct get_exif_param_inf *get_exif_param);
+    int32_t (*sensor_get_eeprom_otp_info) (struct msm_sensor_ctrl_t *, struct eeprom_otp_info_t *eeprom_otp_info);
+    int32_t (*sensor_set_frame_rate_mode) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_get_hdr_brightness) (struct msm_sensor_ctrl_t *, struct hdr_brightness_t *);
+    int32_t (*sensor_set_hdr_brightness) (struct msm_sensor_ctrl_t *, struct hdr_brightness_t);
+    int32_t (*sensor_set_cap_mode_enable) (struct msm_sensor_ctrl_t *, int);
+    int32_t (*sensor_otp_read) (struct msm_sensor_ctrl_t *);
+    int32_t (*sensor_get_device_id) (struct msm_sensor_ctrl_t *, uint16_t *);
 };
 
 struct msm_sensor_ctrl_t {
@@ -245,6 +273,10 @@ long msm_sensor_subdev_ioctl(struct v4l2_subdev *sd,
 			unsigned int cmd, void *arg);
 
 struct msm_sensor_ctrl_t *get_sctrl(struct v4l2_subdev *sd);
+
+/* PM_OBS */
+int msm_sensor_set_parm_pm_obs( ncmc_pm_obs_data_t pm_obs );
+/* PM_OBS */
 
 #define VIDIOC_MSM_SENSOR_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 10, void __user *)

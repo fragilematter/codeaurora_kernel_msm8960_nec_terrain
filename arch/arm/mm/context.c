@@ -7,6 +7,10 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -50,6 +54,9 @@ static int contextidr_notifier(struct notifier_block *unused, unsigned long cmd,
 
 	if (cmd != THREAD_NOTIFY_SWITCH)
 		return NOTIFY_DONE;
+
+        if(thread == NULL)
+	    return NOTIFY_DONE;
 
 	pid = task_pid_nr(thread->task);
 	local_irq_save(flags);

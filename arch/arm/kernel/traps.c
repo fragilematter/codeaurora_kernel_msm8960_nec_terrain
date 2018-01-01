@@ -12,6 +12,10 @@
  *  'linux/arch/arm/lib/traps.S'.  Mostly a debugging aid, but will probably
  *  kill the offending process.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/signal.h>
 #include <linux/personality.h>
 #include <linux/kallsyms.h>
@@ -236,11 +240,17 @@ static int __die(const char *str, int err, struct thread_info *thread, struct pt
 
 	printk(KERN_EMERG "Internal error: %s: %x [#%d]" S_PREEMPT S_SMP "\n",
 	       str, err, ++die_counter);
+        printk(KERN_ERR "[T][ARM]Event:0x38 Info:0x01\n");
 
 	/* trap and error numbers are mostly meaningless on ARM */
 	ret = notify_die(DIE_OOPS, str, regs, err, tsk->thread.trap_no, SIGSEGV);
 	if (ret == NOTIFY_STOP)
 		return ret;
+
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	if ( die_counter >= 2 )
+		return ret;
+#endif
 
 	print_modules();
 	__show_regs(regs);
@@ -402,7 +412,7 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 	info.si_errno = 0;
 	info.si_code  = ILL_ILLOPC;
 	info.si_addr  = pc;
-
+	printk(KERN_ERR "[T][ARM]Event:0x33 Info:0x00\n");
 	arm_notify_die("Oops - undefined instruction", regs, &info, 0, 6);
 }
 

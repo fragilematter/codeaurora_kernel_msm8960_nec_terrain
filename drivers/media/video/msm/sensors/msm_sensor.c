@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include "msm_sensor.h"
 #include "msm.h"
@@ -494,10 +498,99 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 					s_ctrl,
 					cdata.mode,
 					cdata.rs);
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
 			break;
 
 		case CFG_SET_EFFECT:
+            CDBG("case CFG_SET_EFFECT:");
+            if (s_ctrl->func_tbl->
+            sensor_set_effect == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_effect(
+                    s_ctrl,cdata.cfg.effect);
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
 			break;
+
+        case CFG_SET_SCENE_SELECT:
+            CDBG("case CFG_SET_SCENE_SELECT");
+            if (s_ctrl->func_tbl->
+            sensor_set_scene == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_scene(
+                    s_ctrl,cdata.cfg.scene);
+            break;
+
+        case CFG_SET_PICT_SIZE:
+            CDBG("case CFG_SET_PICT_SIZE");
+            if (s_ctrl->func_tbl->
+            sensor_set_pict_size == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_pict_size(
+                    s_ctrl,cdata.cfg.pict_size);
+            break;
+
+        case CFG_SET_WB:
+            CDBG("case CFG_SET_WB");
+            if (s_ctrl->func_tbl->
+            sensor_set_wb == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_wb(
+                    s_ctrl,cdata.cfg.wb_val);
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+            break;
+
+        case CFG_SET_ANTIBANDING:
+            CDBG("case CFG_SET_ANTIBANDING");
+            if (s_ctrl->func_tbl->
+            sensor_set_antibanding == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_antibanding(
+                    s_ctrl,cdata.cfg.antibanding);
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+            break;
+
+        case CFG_SET_EXP_COMPENSATION:
+            CDBG("case CFG_SET_EXP_COMPENSATION");
+            if (s_ctrl->func_tbl->
+            sensor_set_exp_compensation == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_exp_compensation(
+                    s_ctrl,cdata.cfg.exp_compensation);
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+            break;
 
 		case CFG_SENSOR_INIT:
 			if (s_ctrl->func_tbl->
@@ -510,6 +603,10 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 				s_ctrl,
 				cdata.mode,
 				&(cdata.cfg.init_info));
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
 			break;
 
 		case CFG_GET_OUTPUT_INFO:
@@ -546,6 +643,175 @@ int32_t msm_sensor_config(struct msm_sensor_ctrl_t *s_ctrl, void __user *argp)
 				sizeof(struct sensor_eeprom_data_t)))
 				rc = -EFAULT;
 			break;
+
+        /* PM_OBS */
+        case CFG_SET_PM_OBS:
+            if (s_ctrl->func_tbl->
+            sensor_set_parm_pm_obs == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_parm_pm_obs(cdata.cfg.pm_obs);
+            break;
+        /* PM_OBS */
+
+        case CFG_GET_MAKER_NOTE:
+            CDBG("case CFG_GET_MAKER_NOTE");
+            if (s_ctrl->func_tbl->
+            sensor_get_maker_note == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+
+            rc = s_ctrl->func_tbl->
+                sensor_get_maker_note(s_ctrl, &(cdata.cfg.get_exif_maker_note) );
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+
+            if (copy_to_user((void *)argp, &cdata,
+                     sizeof(struct sensor_cfg_data))) {
+                rc = -EFAULT;
+            }
+        break;
+
+        case CFG_GET_PARAM_EXIF:
+            CDBG("case CFG_GET_PARAM_EXIF");
+            if (s_ctrl->func_tbl->
+            sensor_get_exif_param == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+
+            rc = s_ctrl->func_tbl->
+                sensor_get_exif_param(s_ctrl, &(cdata.cfg.get_exif_param) );
+
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+
+            if (rc >= 0) {
+                if (copy_to_user((void *)argp, &cdata,
+                         sizeof(struct sensor_cfg_data))) {
+                    rc = -EFAULT;
+                }
+            }
+        break;
+
+        case CFG_GET_EEPROM_READ:
+            CDBG("case CFG_GET_EEPROM_READ");
+            if (s_ctrl->func_tbl->
+            sensor_get_eeprom_otp_info == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+
+            rc = s_ctrl->func_tbl->
+                sensor_get_eeprom_otp_info(s_ctrl, &(cdata.cfg.eeprom_otp_info) );
+
+            if (copy_to_user((void *)argp, &cdata,
+                     sizeof(struct sensor_cfg_data))) {
+                rc = -EFAULT;
+            }
+        break;
+
+        case CFG_SET_FRAME_RATE_MODE:
+            CDBG("case CFG_SET_FRAME_RATE_MODE");
+            if (s_ctrl->func_tbl->
+            sensor_set_frame_rate_mode == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_frame_rate_mode(
+                    s_ctrl,cdata.cfg.frame_rate_mode);
+            break;
+
+        case CFG_GET_HDR_BRIGHTNESS:
+            CDBG("case CFG_GET_HDR_BRIGHTNESS");
+            if (s_ctrl->func_tbl->
+            sensor_get_hdr_brightness == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+
+            rc = s_ctrl->func_tbl->
+                sensor_get_hdr_brightness(s_ctrl, &(cdata.cfg.hdr_brightness) );
+
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+
+            if (rc >= 0) {
+                if (copy_to_user((void *)argp, &cdata,
+                         sizeof(struct sensor_cfg_data))) {
+                    rc = -EFAULT;
+                }
+            }
+        break;
+
+        case CFG_SET_HDR_BRIGHTNESS:
+            CDBG("case CFG_SET_HDR_BRIGHTNESS");
+            if (s_ctrl->func_tbl->
+            sensor_set_hdr_brightness == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_hdr_brightness(s_ctrl, cdata.cfg.hdr_brightness );
+
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+
+        break;
+
+        case CFG_SET_CAP_MODE_ENABLE:
+            CDBG("case CFG_SET_CAP_MODE_ENABLE");
+            if (s_ctrl->func_tbl->
+            sensor_set_cap_mode_enable == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+            rc = s_ctrl->func_tbl->
+                sensor_set_cap_mode_enable(
+                    s_ctrl,cdata.cfg.cap_mode_enable);
+
+			if(rc < 0){
+				pr_err("%s: i2c read/write failed \n",__func__);
+				i2c_error_flag = true;
+			}
+
+            break;
+
+        case CFG_GET_DEVICE_ID:
+            CDBG("case CFG_GET_DEVICE_ID");
+            if (s_ctrl->func_tbl->
+            sensor_get_device_id == NULL) {
+                rc = -EFAULT;
+                break;
+            }
+
+            rc = s_ctrl->func_tbl->
+                sensor_get_device_id(s_ctrl, &(cdata.cfg.device_id) );
+
+            if(rc < 0){
+                pr_err("%s: i2c read/write failed \n",__func__);
+                i2c_error_flag = true;
+            }
+
+            if (rc >= 0) {
+                if (copy_to_user((void *)argp, &cdata,
+                         sizeof(struct sensor_cfg_data))) {
+                    rc = -EFAULT;
+                }
+            }
+        break;
 
 		default:
 			rc = -EFAULT;
@@ -731,19 +997,36 @@ int32_t msm_sensor_i2c_probe(struct i2c_client *client,
 	if (rc < 0)
 		goto probe_fail;
 
+    if (s_ctrl->func_tbl->sensor_otp_read){
+        rc = s_ctrl->func_tbl->sensor_otp_read(s_ctrl);
+    }
+    if (rc < 0){
+        goto probe_fail;
+    }
+
 	if (s_ctrl->sensor_eeprom_client != NULL) {
+		const struct msm_camera_sensor_info *info =
+			client->dev.platform_data;
 		struct msm_camera_eeprom_client *eeprom_client =
 			s_ctrl->sensor_eeprom_client;
-		if (eeprom_client->func_tbl.eeprom_init != NULL &&
-			eeprom_client->func_tbl.eeprom_release != NULL) {
+		if (eeprom_client->func_tbl.eeprom_init != NULL) {
 			rc = eeprom_client->func_tbl.eeprom_init(
 				eeprom_client,
 				s_ctrl->sensor_i2c_client->client->adapter);
 			if (rc < 0)
 				goto probe_fail;
+		}
+		rc = msm_camera_eeprom_read_tbl(eeprom_client,
+		eeprom_client->read_tbl, eeprom_client->read_tbl_size);
+		if (rc < 0)
+			goto probe_fail;
 
-			rc = msm_camera_eeprom_read_tbl(eeprom_client,
-			eeprom_client->read_tbl, eeprom_client->read_tbl_size);
+		if (info->actuator_info != NULL) {
+			info->actuator_info->eeprom_client =
+				(void *)eeprom_client;
+		}
+
+		if (eeprom_client->func_tbl.eeprom_release != NULL) {
 			eeprom_client->func_tbl.eeprom_release(eeprom_client);
 			if (rc < 0)
 				goto probe_fail;
@@ -923,3 +1206,38 @@ int msm_sensor_enable_debugfs(struct msm_sensor_ctrl_t *s_ctrl)
 
 	return 0;
 }
+
+/* PM_OBS */
+int msm_sensor_set_parm_pm_obs( ncmc_pm_obs_data_t pm_obs )
+{
+    int32_t rc = 0;
+    pm_obs_mode_type mode = 0;
+    bool sw = false;
+
+    CDBG("start\n");
+    CDBG("pm_obs mode = %d, sw = %d\n", pm_obs.mode, pm_obs.sw);
+
+    switch (pm_obs.mode)
+    {
+        case CAMERA_LIVEVIEW_MODE:    /* LIVEVIEW */
+            mode = PM_OBS_CAMERA_CAM1_MODE;
+            break;
+        case CAMERA_REC_MODE:         /* VIDEO REC */
+            mode = PM_OBS_CAMERA_CAM2_MODE;
+            break;
+        default:
+            CDBG("param error. default\n");
+            return -EINVAL;
+    }
+    if (pm_obs.sw == SENSOR_ON) {
+        sw = TRUE;
+    } else {
+        sw = FALSE;
+    }
+
+    pm_obs_a_camera(mode, sw);
+    
+    CDBG("end\n");
+    return rc;
+}
+/* PM_OBS */

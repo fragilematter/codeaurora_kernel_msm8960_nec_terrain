@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include "msm_fb.h"
 #include "mipi_dsi.h"
@@ -1126,6 +1130,8 @@ static int mipi_renesas_lcd_on(struct platform_device *pdev)
 	mfd = platform_get_drvdata(pdev);
 	mipi  = &mfd->panel_info.mipi;
 
+	printk(KERN_INFO "%s. %d\n",__func__, __LINE__);
+
 	if (!mfd)
 		return -ENODEV;
 	if (mfd->key != MFD_KEY)
@@ -1159,6 +1165,7 @@ static int mipi_renesas_lcd_off(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 
 	mfd = platform_get_drvdata(pdev);
+	printk(KERN_INFO "%s. %d\n",__func__, __LINE__);
 
 	if (!mfd)
 		return -ENODEV;

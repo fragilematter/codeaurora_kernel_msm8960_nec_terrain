@@ -71,6 +71,10 @@
  * 		J Hadi Salim	:	- Backlog queue sampling
  *				        - netif_rx() feedback
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <asm/uaccess.h>
 #include <asm/system.h>
@@ -5025,7 +5029,9 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	 *	- require strict serialization.
 	 *	- do not return a value
 	 */
+#ifndef CONFIG_FEATURE_NCMC_IRDA
 	case SIOCSIFFLAGS:
+#endif /* CONFIG_OEM_NCMC_HMR */
 	case SIOCSIFMETRIC:
 	case SIOCSIFMTU:
 	case SIOCSIFMAP:
@@ -5046,6 +5052,9 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 		/* fall through */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+    case SIOCSIFFLAGS:
+#endif /* CONFIG_OEM_NCMC_HMR */
 	case SIOCBONDSLAVEINFOQUERY:
 	case SIOCBONDINFOQUERY:
 		dev_load(net, ifr.ifr_name);

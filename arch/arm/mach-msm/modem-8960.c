@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
@@ -33,6 +37,16 @@
 #include "ramdump.h"
 
 static int crash_shutdown;
+
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
+
+int ncmc_set_fatal_mode(int mode);
 
 #define MAX_SSR_REASON_LEN 81U
 #define Q6_FW_WDOG_ENABLE		0x08882024
@@ -74,6 +88,7 @@ static void modem_sw_fatal_fn(struct work_struct *work)
 		pr_err("Modem SMSM state changed to SMSM_RESET.\n"
 			"Probable err_fatal on the modem. "
 			"Calling subsystem restart...\n");
+        printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x06");
 		subsystem_restart("modem");
 
 	} else if (modem_state & reset_smsm_states) {
@@ -83,6 +98,7 @@ static void modem_sw_fatal_fn(struct work_struct *work)
 			__func__);
 		kernel_restart(NULL);
 	} else {
+        printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x06");
 		/* TODO: Bus unlock code/sequence goes _here_ */
 		subsystem_restart("modem");
 	}
@@ -91,6 +107,7 @@ static void modem_sw_fatal_fn(struct work_struct *work)
 static void modem_fw_fatal_fn(struct work_struct *work)
 {
 	pr_err("Watchdog bite received from modem FW!\n");
+    printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x06");
 	subsystem_restart("modem");
 }
 
@@ -99,6 +116,8 @@ static DECLARE_WORK(modem_fw_fatal_work, modem_fw_fatal_fn);
 
 static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 {
+    int retmode = OEM_NCMC_FATAL_MODE_INIT;
+
 	/* Ignore if we're the one that set SMSM_RESET */
 	if (crash_shutdown)
 		return;
@@ -107,6 +126,13 @@ static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 		pr_err("Modem SMSM state changed to SMSM_RESET.\n"
 			"Probable err_fatal on the modem. "
 			"Calling subsystem restart...\n");
+        retmode = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_MODEM );
+        if ( retmode == OEM_NCMC_FATAL_MODE_ERR )
+        {
+            pr_err( "%s: fatal mode error \n", __func__ );
+            return;
+        }
+        printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x06");
 		subsystem_restart("modem");
 	}
 }
@@ -226,18 +252,45 @@ out:
 static irqreturn_t modem_wdog_bite_irq(int irq, void *dev_id)
 {
 	int ret;
+    struct work_struct  work;
 
 	switch (irq) {
 
 	case Q6SW_WDOG_EXPIRED_IRQ:
+        ret = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_MODEM );
+        if ( ret == OEM_NCMC_FATAL_MODE_ERR )
+        {
+            pr_err( "%s: Q6SW fatal mode error \n", __func__ );
+            disable_irq_nosync( Q6SW_WDOG_EXPIRED_IRQ );
+            disable_irq_nosync( Q6FW_WDOG_EXPIRED_IRQ );
+            return IRQ_HANDLED;
+        }
 		ret = schedule_work(&modem_sw_fatal_work);
 		disable_irq_nosync(Q6SW_WDOG_EXPIRED_IRQ);
 		disable_irq_nosync(Q6FW_WDOG_EXPIRED_IRQ);
+        if ( !ret )
+        {
+            printk( KERN_ERR "%s: Q6SW schedule_work err ret =%d \n", __func__,ret) ;
+            modem_sw_fatal_fn( &work );
+        }
 		break;
 	case Q6FW_WDOG_EXPIRED_IRQ:
+        ret = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_MODEM );
+        if ( ret == OEM_NCMC_FATAL_MODE_ERR )
+        {
+            pr_err( "%s: Q6FW fatal mode error \n", __func__ );
+            return IRQ_HANDLED;
+        }
 		ret = schedule_work(&modem_fw_fatal_work);
 		disable_irq_nosync(Q6SW_WDOG_EXPIRED_IRQ);
 		disable_irq_nosync(Q6FW_WDOG_EXPIRED_IRQ);
+        if ( !ret )
+        {
+            printk( KERN_ERR "%s: Q6FW schedule_work err ret =%d \n", __func__,ret) ;
+            disable_irq_nosync( Q6SW_WDOG_EXPIRED_IRQ );
+            disable_irq_nosync( Q6FW_WDOG_EXPIRED_IRQ );
+            modem_fw_fatal_fn( &work );
+        }
 		break;
 	break;
 

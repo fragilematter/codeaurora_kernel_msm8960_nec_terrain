@@ -9,11 +9,18 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
+
 
 #ifndef __REGULATOR_PM8XXX_REGULATOR_H__
 #define __REGULATOR_PM8XXX_REGULATOR_H__
 
 #include <linux/regulator/machine.h>
+#include <linux/regulator/driver.h>
 
 #define PM8XXX_REGULATOR_DEV_NAME	"pm8xxx-regulator"
 
@@ -83,5 +90,20 @@ struct pm8xxx_regulator_platform_data {
 	unsigned			ocp_enable;
 	int				ocp_enable_time;
 };
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+extern int oem_regulator_mode(struct regulator *regulator, unsigned int mode);          /* core.c */
+extern int oem_update_voltage(struct regulator *regulator, u32 min_uV, u32 max_uV);     /* core.c */
+extern int oem_regulator_enable(struct regulator *regulator);                           /* core.c */
+extern int oem_regulator_disable(struct regulator *regulator);                          /* core.c */
+
+extern int oem_set_pulldown(struct regulator *regulator, unsigned int enable);          /* core.c */
+
+       int nc_pm8921_lp_mode_control(u8 which_vreg, u8 vreg_cmd);
+       int nc_pm8921_vreg_control(u8 vreg_cmd, u8 vregs, u32 min_level, u32 max_level);
+       int nc_pm8921_vreg_set_level(u8 vregs, u32 min_level, u32 max_level);
+       int nc_pm8921_vreg_pull_down_switch(u8 vreg_id, unsigned char enable);
+#endif
+
 
 #endif

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/init.h>
 #include <linux/ioport.h>
@@ -90,6 +94,9 @@ static struct msm_mmc_reg_data mmc_vdd_io_reg_data[MAX_SDCC_CONTROLLER] = {
 		 * during sleep.
 		 */
 		.lpm_uA = 2000,
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		.is_enabled = 1,
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	},
 	/* SDCC4 : SDIO slot connected */
 	[SDCC4] = {
@@ -126,9 +133,9 @@ static struct msm_mmc_slot_reg_data mmc_slot_vreg_data[MAX_SDCC_CONTROLLER] = {
 
 /* SDC1 pad data */
 static struct msm_mmc_pad_drv sdc1_pad_drv_on_cfg[] = {
-	{TLMM_HDRV_SDC1_CLK, GPIO_CFG_16MA},
-	{TLMM_HDRV_SDC1_CMD, GPIO_CFG_10MA},
-	{TLMM_HDRV_SDC1_DATA, GPIO_CFG_10MA}
+	{TLMM_HDRV_SDC1_CLK, GPIO_CFG_6MA},
+	{TLMM_HDRV_SDC1_CMD, GPIO_CFG_6MA},
+	{TLMM_HDRV_SDC1_DATA, GPIO_CFG_6MA}
 };
 
 static struct msm_mmc_pad_drv sdc1_pad_drv_off_cfg[] = {
@@ -164,12 +171,28 @@ static struct msm_mmc_pad_drv sdc3_pad_drv_off_cfg[] = {
 
 static struct msm_mmc_pad_pull sdc3_pad_pull_on_cfg[] = {
 	{TLMM_PULL_SDC3_CLK, GPIO_CFG_NO_PULL},
+#if defined(CONFIG_FEATURE_NCMC_SDCARD) && \
+			!defined(CONFIG_FEATURE_NCMC_Q89_BRB)
+	{TLMM_PULL_SDC3_CMD, GPIO_CFG_NO_PULL},
+	{TLMM_PULL_SDC3_DATA, GPIO_CFG_NO_PULL}
+#else /* CONFIG_FEATURE_NCMC_SDCARD && !CONFIG_FEATURE_NCMC_Q89_BRB */
 	{TLMM_PULL_SDC3_CMD, GPIO_CFG_PULL_UP},
 	{TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_UP}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD && !CONFIG_FEATURE_NCMC_Q89_BRB */
 };
 
 static struct msm_mmc_pad_pull sdc3_pad_pull_off_cfg[] = {
 	{TLMM_PULL_SDC3_CLK, GPIO_CFG_NO_PULL},
+#if defined(CONFIG_FEATURE_NCMC_SDCARD) && \
+			!defined(CONFIG_FEATURE_NCMC_Q89_BRB)
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+       {TLMM_PULL_SDC3_CMD, GPIO_CFG_PULL_DOWN},
+       {TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_DOWN}
+#else /* CONFIG_FEATURE_NCMC_RUBY */
+	{TLMM_PULL_SDC3_CMD, GPIO_CFG_NO_PULL},
+	{TLMM_PULL_SDC3_DATA, GPIO_CFG_NO_PULL}
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
+#else /* CONFIG_FEATURE_NCMC_SDCARD && !CONFIG_FEATURE_NCMC_Q89_BRB */
 	/*
 	 * SDC3 CMD line should be PULLed UP otherwise fluid platform will
 	 * see transitions (1 -> 0 and 0 -> 1) on card detection line,
@@ -182,6 +205,7 @@ static struct msm_mmc_pad_pull sdc3_pad_pull_off_cfg[] = {
 	 * is connected to DATA lines.
 	 */
 	{TLMM_PULL_SDC3_DATA, GPIO_CFG_PULL_UP}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD && !CONFIG_FEATURE_NCMC_Q89_BRB */
 };
 
 static struct msm_mmc_pad_pull_data mmc_pad_pull_data[MAX_SDCC_CONTROLLER] = {
@@ -260,6 +284,12 @@ static struct msm_mmc_pin_data mmc_slot_pin_data[MAX_SDCC_CONTROLLER] = {
 	},
 	[SDCC3] = {
 		.pad_data = &mmc_pad_data[SDCC3],
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+               .cfg_sts = true,
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	},
 	[SDCC4] = {
 		.is_gpio = 1,
@@ -275,7 +305,7 @@ static unsigned int sdc1_sup_clk_rates[] = {
 };
 
 static unsigned int sdc3_sup_clk_rates[] = {
-	400000, 24000000, 48000000, 96000000, 192000000
+	400000, 24000000, 48000000, 96000000
 };
 
 #ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
@@ -333,12 +363,15 @@ static struct mmc_platform_data msm8960_sdc3_data = {
 	.irq_flags	= IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 	.is_status_gpio_active_low = true,
 #endif
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	.xpc_cap	= 1,
 	.uhs_caps	= (MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
 			MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_DDR50 |
 			MMC_CAP_UHS_SDR104 | MMC_CAP_MAX_CURRENT_600),
 	.mpm_sdiowakeup_int = MSM_MPM_PIN_SDC3_DAT1,
 	.msm_bus_voting_data = &sps_to_ddr_bus_voting_data,
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 };
 #endif
 

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/workqueue.h>
 #include <linux/delay.h>
@@ -629,17 +633,20 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 		/* then sensor - move sub dev later*/
 		rc = v4l2_subdev_call(p_mctl->sensor_sdev, core, s_power, 1);
 		if (rc < 0) {
-			pr_err("%s: sensor power up failed: %d\n",
-				__func__, rc);
-			goto sensor_sdev_failed;
+			pr_err("%s: sensor powerup failed: %d\n", __func__, rc);
+			goto msm_open_done1;
 		}
+
+        /* PM_OBS_CAMERA */
+        pm_obs_a_camera(PM_OBS_CAMERA_CAM1_MODE, TRUE);
+        /* PM_OBS_CAMERA */
 
 		if (sync->actctrl.a_power_up)
 			rc = sync->actctrl.a_power_up(
 				sync->sdata->actuator_info);
 		if (rc < 0) {
 			pr_err("%s: act power failed:%d\n", __func__, rc);
-			goto act_power_up_failed;
+			goto msm_open_done2;
 		}
 
 		if (camdev->is_csiphy) {
@@ -648,7 +655,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			if (rc < 0) {
 				pr_err("%s: csiphy initialization failed %d\n",
 					__func__, rc);
-				goto csiphy_init_failed;
+				goto msm_open_done3;
 			}
 		}
 
@@ -658,7 +665,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			if (rc < 0) {
 				pr_err("%s: csid initialization failed %d\n",
 					__func__, rc);
-				goto csid_init_failed;
+				goto msm_open_done4;
 			}
 		}
 		if (camdev->is_csic) {
@@ -667,7 +674,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			if (rc < 0) {
 				pr_err("%s: csic initialization failed %d\n",
 					__func__, rc);
-				goto csic_init_failed;
+				goto msm_open_done5;
 			}
 		}
 
@@ -680,7 +687,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 				sync);
 		if (rc < 0) {
 			pr_err("%s: isp init failed: %d\n", __func__, rc);
-			goto isp_open_failed;
+			goto msm_open_done6;
 		}
 
 		if (camdev->is_ispif) {
@@ -689,7 +696,7 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 			if (rc < 0) {
 				pr_err("%s: ispif initialization failed %d\n",
 					__func__, rc);
-				goto ispif_init_failed;
+				goto msm_open_done7;
 			}
 		}
 
@@ -709,32 +716,38 @@ static int msm_mctl_open(struct msm_cam_media_controller *p_mctl,
 	mutex_unlock(&sync->lock);
 	return rc;
 
-ispif_init_failed:
-	if (p_mctl->isp_sdev && p_mctl->isp_sdev->isp_release)
+msm_open_done7:
+	if (p_mctl->isp_sdev && p_mctl->isp_sdev->isp_release){
 		p_mctl->isp_sdev->isp_release(&p_mctl->sync,
 				p_mctl->gemini_sdev);
-isp_open_failed:
-	if (camdev->is_csic)
-		if (v4l2_subdev_call(p_mctl->csic_sdev, core, ioctl,
-			VIDIOC_MSM_CSIC_RELEASE, NULL) < 0)
-			pr_err("%s: csic release failed %d\n", __func__, rc);
-csic_init_failed:
-	if (camdev->is_csid)
-		if (v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
-			VIDIOC_MSM_CSID_RELEASE, NULL) < 0)
-			pr_err("%s: csid release failed %d\n", __func__, rc);
-csid_init_failed:
-	if (camdev->is_csiphy)
-		if (v4l2_subdev_call(p_mctl->csiphy_sdev, core, ioctl,
-			VIDIOC_MSM_CSIPHY_RELEASE, NULL) < 0)
-			pr_err("%s: csiphy release failed %d\n", __func__, rc);
-csiphy_init_failed:
-	if (p_mctl->sync.actctrl.a_power_down)
-		p_mctl->sync.actctrl.a_power_down(
-			p_mctl->sync.sdata->actuator_info);
-act_power_up_failed:
+	}
+msm_open_done6:
+	if (camdev->is_csic) {
+		v4l2_subdev_call(p_mctl->csic_sdev, core, ioctl,
+			VIDIOC_MSM_CSIC_RELEASE, NULL);
+	}
+msm_open_done5:
+	if (camdev->is_csid) {
+		v4l2_subdev_call(p_mctl->csid_sdev, core, ioctl,
+			VIDIOC_MSM_CSID_RELEASE, NULL);
+	}
+msm_open_done4:
+	if (camdev->is_csiphy) {
+		v4l2_subdev_call(p_mctl->csiphy_sdev, core, ioctl,
+			VIDIOC_MSM_CSIPHY_RELEASE, NULL);
+	}
+msm_open_done3:
+	if ((sync->actctrl.a_power_up) && (sync->actctrl.a_power_down)){
+		sync->actctrl.a_power_down(
+			sync->sdata->actuator_info);
+	}
+msm_open_done2:
+    /* PM_OBS */
+    pm_obs_a_camera(PM_OBS_CAMERA_CAM1_MODE, FALSE);
+    /* PM_OBS */
+msm_open_done1:
 	v4l2_subdev_call(p_mctl->sensor_sdev, core, s_power, 0);
-sensor_sdev_failed:
+
 register_sdev_failed:
 	wake_unlock(&p_mctl->sync.wake_lock);
 	mutex_unlock(&sync->lock);
@@ -786,6 +799,10 @@ static int msm_mctl_release(struct msm_cam_media_controller *p_mctl)
 			p_mctl->sync.sdata->actuator_info);
 
 	v4l2_subdev_call(p_mctl->sensor_sdev, core, s_power, 0);
+
+    /* PM_OBS */
+    pm_obs_a_camera(PM_OBS_CAMERA_CAM1_MODE, FALSE);
+    /* PM_OBS */
 
 	wake_unlock(&p_mctl->sync.wake_lock);
 	return rc;

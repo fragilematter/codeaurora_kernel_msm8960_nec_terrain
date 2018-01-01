@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt) "subsys-restart: %s(): " fmt, __func__
 
@@ -33,6 +37,16 @@
 #include <mach/subsystem_restart.h>
 
 #include "smd_private.h"
+
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
+
+int ncmc_get_fatal_mode(void);
 
 struct subsys_soc_restart_order {
 	const char * const *subsystem_list;
@@ -439,6 +453,18 @@ int subsystem_restart(const char *subsys_name)
 	struct subsys_data *subsys;
 	struct task_struct *tsk;
 	struct restart_thread_data *data = NULL;
+    int mode = OEM_NCMC_FATAL_MODE_INIT;
+
+    mode = ncmc_get_fatal_mode();
+    if ( mode == OEM_NCMC_FATAL_MODE_MODEM
+    ||   mode == OEM_NCMC_FATAL_MODE_DSP
+    ||   mode == OEM_NCMC_FATAL_MODE_LPASS
+    ||   mode == OEM_NCMC_FATAL_MODE_RIVA )
+    {
+        pr_err("Subsystem Restart: Restart sequence requested for  %s\n",subsys_name);
+        panic("subsys-restart: Unknown restart level!\n");
+        return 0;
+    }
 
 	if (!subsys_name) {
 		pr_err("Invalid subsystem name.\n");

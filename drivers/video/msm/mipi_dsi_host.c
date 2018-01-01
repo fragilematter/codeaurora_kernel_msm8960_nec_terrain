@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -870,10 +874,18 @@ void mipi_dsi_host_init(struct mipi_panel_info *pinfo)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x00ac, pinfo->dlane_swap);
 
 	/* clock out ctrl */
+#if defined (LCD_DEVICE_D121M_PT)
+	MIPI_OUTP(MIPI_DSI_BASE + 0xc0, 0x00001930);	/* DSI_CLKOUT_TIMING_CTRL */
+#elif defined (LCD_DEVICE_D121F_PT)
+	MIPI_OUTP(MIPI_DSI_BASE + 0xc0, 0x00001930);    /* DSI_CLKOUT_TIMING_CTRL */
+#elif defined (LCD_DEVICE_G121S_PT)
+	MIPI_OUTP(MIPI_DSI_BASE + 0xc0, 0x00001930);	/* DSI_CLKOUT_TIMING_CTRL */
+#else
 	data = pinfo->t_clk_post & 0x3f;	/* 6 bits */
 	data <<= 8;
 	data |= pinfo->t_clk_pre & 0x3f;	/*  6 bits */
 	MIPI_OUTP(MIPI_DSI_BASE + 0xc0, data);	/* DSI_CLKOUT_TIMING_CTRL */
+#endif
 
 	data = 0;
 	if (pinfo->rx_eot_ignore)

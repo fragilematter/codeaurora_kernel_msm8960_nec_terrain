@@ -10,6 +10,10 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -1136,6 +1140,11 @@ void mmc_power_off(struct mmc_host *host)
 	mmc_set_ios(host);
 
 	mmc_host_clk_release(host);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (host->card && mmc_card_sd(host->card)) {
+		mdelay(10);
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 }
 
 /*
@@ -2037,7 +2046,13 @@ int mmc_resume_host(struct mmc_host *host)
 			printk(KERN_WARNING "%s: error %d during resume "
 					    "(card was removed?)\n",
 					    mmc_hostname(host), err);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+			if (!host->card || !mmc_card_sd(host->card)) {
+				err = 0;
+			}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 			err = 0;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 		}
 	}
 	host->pm_flags &= ~MMC_PM_KEEP_POWER;

@@ -10,7 +10,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/module.h>
@@ -1123,6 +1126,47 @@ static int vreg_enable_time(struct regulator_dev *rdev)
 	return vreg->pdata.enable_time;
 }
 
+#ifdef CONFIG_FEATURE_NCMC_POWER
+static int nc_vreg_set_vreg_pull_down(struct regulator_dev *rdev, unsigned int enable)
+{
+    struct vreg *vreg = rdev_get_drvdata(rdev);
+    int rc = 0;
+
+    unsigned long flags;
+    unsigned prev = 0;
+    
+    prev = GET_PART(vreg, pd);
+    
+    SET_PART(vreg, pd, (enable ? 1 : 0));
+    
+    if (vreg->pdata.sleep_selectable) 
+    {
+        spin_lock_irqsave(&rpm_noirq_lock, flags);
+        rc = msm_rpmrs_set_noirq(MSM_RPM_CTX_SET_0, vreg->req, vreg->part->request_len);
+        spin_unlock_irqrestore(&rpm_noirq_lock, flags);
+        pr_info("%s : msm_rpmrs_set_noirq() set pull down to %s\n",vreg->rdesc.name, (enable ? "enable" : "disable"));
+    }
+    else
+    {
+        rc = msm_rpm_set(MSM_RPM_CTX_SET_0, vreg->req, vreg->part->request_len);
+        pr_info("%s : msm_rpm_set() set pull down to %s\n",vreg->rdesc.name, (enable ? "enable" : "disable"));
+    }
+    
+    if (rc) {
+        SET_PART(vreg, pd, prev);
+        vreg_err(vreg, "msm_rpm_set failed, set=active, id=%d, rc=%d\n", vreg->req[0].id, rc);
+    } else {
+        if (msm_rpm_vreg_debug_mask & MSM_RPM_VREG_DEBUG_REQUEST)
+            rpm_regulator_req(vreg, MSM_RPM_CTX_SET_0);
+        vreg->prev_active_req[0].value = vreg->req[0].value;
+        vreg->prev_active_req[1].value = vreg->req[1].value;
+    }
+    
+    
+    return rc;
+}
+#endif
+
 /* Real regulator operations. */
 static struct regulator_ops ldo_ops = {
 	.enable			= vreg_enable,
@@ -1135,6 +1179,9 @@ static struct regulator_ops ldo_ops = {
 	.get_mode		= vreg_get_mode,
 	.get_optimum_mode	= vreg_get_optimum_mode,
 	.enable_time		= vreg_enable_time,
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    .set_pull_down  = nc_vreg_set_vreg_pull_down,
+#endif
 };
 
 static struct regulator_ops smps_ops = {
@@ -1148,6 +1195,9 @@ static struct regulator_ops smps_ops = {
 	.get_mode		= vreg_get_mode,
 	.get_optimum_mode	= vreg_get_optimum_mode,
 	.enable_time		= vreg_enable_time,
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    .set_pull_down  = nc_vreg_set_vreg_pull_down,
+#endif
 };
 
 static struct regulator_ops switch_ops = {
@@ -1155,6 +1205,9 @@ static struct regulator_ops switch_ops = {
 	.disable		= vreg_disable,
 	.is_enabled		= vreg_is_enabled,
 	.enable_time		= vreg_enable_time,
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    .set_pull_down  = nc_vreg_set_vreg_pull_down,
+#endif
 };
 
 static struct regulator_ops ncp_ops = {
@@ -1165,6 +1218,9 @@ static struct regulator_ops ncp_ops = {
 	.get_voltage		= vreg_get_voltage,
 	.list_voltage		= vreg_list_voltage,
 	.enable_time		= vreg_enable_time,
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    .set_pull_down  = nc_vreg_set_vreg_pull_down,
+#endif
 };
 
 /* Pin control regulator operations. */

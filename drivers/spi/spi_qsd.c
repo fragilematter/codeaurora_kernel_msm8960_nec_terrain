@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 /*
  * SPI driver for Qualcomm MSM platforms
  *
@@ -311,6 +315,7 @@ struct msm_spi {
 	int                      output_block_size;
 	int                      burst_size;
 	atomic_t                 rx_irq_called;
+	atomic_t                 tx_irq_called;                // ADD NCMC
 	/* Used to pad messages unaligned to block size */
 	u8                       *tx_padding;
 	dma_addr_t               tx_padding_dma;
@@ -948,6 +953,7 @@ static void msm_spi_setup_dm_transfer(struct msm_spi *dd)
 	u32 num_transfers;
 
 	atomic_set(&dd->rx_irq_called, 0);
+	atomic_set(&dd->tx_irq_called, 0);                 // ADD NCMC
 	if (dd->write_len && !dd->read_len) {
 		/* WR-WR transfer */
 		bytes_sent = dd->cur_msg_len - dd->tx_bytes_remaining;
@@ -1068,6 +1074,7 @@ static void msm_spi_setup_dm_transfer(struct msm_spi *dd)
 static void msm_spi_enqueue_dm_commands(struct msm_spi *dd)
 {
 	dma_coherent_pre_ops();
+
 	if (dd->write_buf)
 		msm_dmov_enqueue_cmd(dd->tx_dma_chan, &dd->tx_hdr);
 	if (dd->read_buf)
@@ -1235,6 +1242,10 @@ static irqreturn_t msm_spi_output_irq(int irq, void *dev_id)
 		    readl_relaxed(dd->base + SPI_OPERATIONAL) &
 		    SPI_OP_MAX_OUTPUT_DONE_FLAG) {
 			msm_spi_ack_transfer(dd);
+
+			if (atomic_inc_return(&dd->tx_irq_called) == 1)
+				return IRQ_HANDLED;
+
 			msm_spi_complete(dd);
 			return IRQ_HANDLED;
 		}
@@ -2060,7 +2071,12 @@ static void spi_dmov_tx_complete_func(struct msm_dmov_cmd *cmd,
 	/* restore original context */
 	dd = container_of(cmd, struct msm_spi, tx_hdr);
 	if (result & DMOV_RSLT_DONE)
+	{
 		dd->stat_dmov_tx++;
+		if (atomic_inc_return(&dd->tx_irq_called) == 1)
+			return;
+		complete(&dd->transfer_complete);
+	}
 	else {
 		/* Error or flush */
 		if (result & DMOV_RSLT_ERROR) {

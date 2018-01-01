@@ -9,12 +9,18 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __PM8XXX_CHARGER_H
 #define __PM8XXX_CHARGER_H
 
 #include <linux/errno.h>
 #include <linux/power_supply.h>
+#include "linux/i2c/usb_switch_if_knl.h"
 
 #define PM8921_CHARGER_DEV_NAME	"pm8921-charger"
 
@@ -144,6 +150,9 @@ enum pm8921_charger_source {
 	PM8921_CHG_SRC_DC,
 };
 
+
+extern bool factory_mode_flag_apps;
+
 #if defined(CONFIG_PM8921_CHARGER) || defined(CONFIG_PM8921_CHARGER_MODULE)
 void pm8921_charger_vbus_draw(unsigned int mA);
 int pm8921_charger_register_vbus_sn(void (*callback)(int));
@@ -185,6 +194,13 @@ int pm8921_is_battery_present(void);
  * @ma: max charge current in milliAmperes
  */
 int pm8921_set_max_battery_charge_current(int ma);
+
+/**
+ * pm8921_set_vbatdet_on_pm_param_update -
+ *
+ * returns after setting vbatdet
+ */
+int pm8921_set_vbatdet_on_pm_param_update(void);
 
 /**
  * pm8921_disable_input_current_limt - disable input current limit
@@ -239,6 +255,16 @@ bool pm8921_is_battery_charging(int *source);
  *
  */
 int pm8921_batt_temperature(void);
+
+void chg_usb_charger_connected(usb_sw_device_state_enum device_type);
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_get_fsm_status(u64 * val);
+int nc_pm8921_chg_usb_suspend_enable(int enable);
+int nc_pm8921_chg_imaxsel_set(int chg_current);
+int nc_pm8921_chg_lva_off(int off);
+#endif
+
 /**
  * pm8921_usb_ovp_set_threshold -
  * Set the usb threshold as defined in by
@@ -290,6 +316,10 @@ static inline int pm8921_is_dc_chg_plugged_in(void)
 static inline int pm8921_is_battery_present(void)
 {
 	return -ENXIO;
+}
+static inline int pm8921_set_vbatdet_on_pm_param_update(void)
+{
+      return -ENXIO;
 }
 static inline int pm8921_disable_input_current_limit(bool disable)
 {

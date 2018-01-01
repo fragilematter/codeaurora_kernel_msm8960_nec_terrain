@@ -16,6 +16,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/sched.h>
 #include <linux/module.h>
@@ -62,6 +66,8 @@ struct logger_reader {
 /* logger_offset - returns index 'n' into the log via (optimized) modulus */
 #define logger_offset(n)	((n) & (log->size - 1))
 
+static char conv_buf[LOGGER_ENTRY_MAX_LEN];
+
 /*
  * file_get_log - Given a file structure, return the associated log
  *
@@ -85,6 +91,18 @@ static inline struct logger_log *file_get_log(struct file *file)
 		return file->private_data;
 }
 
+#define FATAL_BACKUP_LOGCAT_NAME "logcat_auto_run"
+#define FATAL_BACKUP_PID_INITIAL -1
+static int g_fatal_backup_logcat_pid = FATAL_BACKUP_PID_INITIAL;
+
+
+
+extern void backup_log_init( void );
+extern void backup_log( struct logger_entry* );
+extern void backup_arm_write( void );
+
+
+
 /*
  * get_entry_len - Grabs the length of the payload of the next entry starting
  * from 'off'.
@@ -107,6 +125,36 @@ static __u32 get_entry_len(struct logger_log *log, size_t off)
 	return sizeof(struct logger_entry) + val;
 }
 
+
+#define TRACELOG_MESSAGE_STR            "\x5B\x54\x5D"
+
+char ncmcCharEncode(char in_char)
+{
+	char ret_char;
+
+	in_char = ~in_char;
+	ret_char = ((in_char & 0x9C)
+				| ((in_char << 5) & 0x60)
+				| ((in_char >> 5) & 0x03));
+
+	return ret_char;
+}
+
+void ncmcStrEncode(char * in_str, char * out_str)
+{
+	int loop;
+	int loop_end;
+
+	loop_end = strlen(in_str);
+
+	for (loop = 0; loop < loop_end; loop++) {
+		out_str[loop] = ncmcCharEncode(in_str[loop]);
+	}
+	out_str[loop] = '\0';
+
+	return;
+}
+
 /*
  * do_read_log_to_user - reads exactly 'count' bytes from 'log' into the
  * user-space buffer 'buf'. Returns 'count' on success.
@@ -120,22 +168,49 @@ static ssize_t do_read_log_to_user(struct logger_log *log,
 {
 	size_t len;
 
+	struct logger_entry *ent;
+	char	*tag;
+	char	*msg;
+
+
 	/*
 	 * We read from the log in two disjoint operations. First, we read from
 	 * the current read head offset up to 'count' bytes or to the end of
 	 * the log, whichever comes first.
 	 */
 	len = min(count, log->size - reader->r_off);
-	if (copy_to_user(buf, log->buffer + reader->r_off, len))
-		return -EFAULT;
+
+	memcpy(conv_buf, log->buffer + reader->r_off, len);
+
 
 	/*
 	 * Second, we read any remaining bytes, starting back at the head of
 	 * the log.
 	 */
 	if (count != len)
-		if (copy_to_user(buf + len, log->buffer, count - len))
-			return -EFAULT;
+
+	memcpy(conv_buf + len, log->buffer, count - len);
+
+	ent = (struct logger_entry *)conv_buf;
+
+
+	if(g_fatal_backup_logcat_pid == current->pid)
+    {
+		backup_log( ent );
+	}
+
+	tag = ent->msg + 1;
+	msg = ent->msg + strlen(tag) + 2;
+
+	if (!strncmp( msg,
+			TRACELOG_MESSAGE_STR,
+			strlen( TRACELOG_MESSAGE_STR ))) {
+		ncmcStrEncode(tag, tag);
+		ncmcStrEncode(msg, msg);
+	}
+
+	if (copy_to_user(buf, conv_buf, count))
+		return -EFAULT;
 
 	reader->r_off = logger_offset(reader->r_off + count);
 
@@ -330,6 +405,13 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	struct timespec now;
 	ssize_t ret = 0;
 
+	char    *p = NULL;
+	int     idx = 0;
+	static const char * const alarm_msg = "\x5B\x54\x5D\x5B\x41\x52\x4D\x5D";
+	static const int    alarm_len = 8;
+	//char    alarm_buf[29];
+	char alarm_buf[37];
+
 	now = current_kernel_time();
 
 	header.pid = current->tgid;
@@ -361,6 +443,22 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 		/* figure out how much of this vector we can keep */
 		len = min_t(size_t, iov->iov_len, header.len - ret);
 
+		/* if logging message is alarm message. */
+		if ( idx == 2 && iov->iov_len > alarm_len ) {
+			if ( !strncmp( iov->iov_base, alarm_msg, alarm_len )){
+				size_t len2;
+				len2 = min( len, log->size - log->w_off ); 
+				p = log->buffer + log->w_off;
+				if ( len != len2 ){
+					strncpy( alarm_buf, iov->iov_base, sizeof( alarm_buf ));
+					//alarm_buf[28] = '\0';
+					alarm_buf[36] = '\0';
+					p = alarm_buf;
+				}
+			}
+		}
+		idx++;
+
 		/* write out this segment's payload */
 		nr = do_write_log_from_user(log, iov->iov_base, len);
 		if (unlikely(nr < 0)) {
@@ -378,6 +476,11 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	/* wake up any blocked readers */
 	wake_up_interruptible(&log->wq);
 
+				/* send to modem side by printk message. */
+	if ( p ){
+		printk( KERN_ERR "%s\n", p );
+	}
+
 	return ret;
 }
 
@@ -392,6 +495,8 @@ static int logger_open(struct inode *inode, struct file *file)
 {
 	struct logger_log *log;
 	int ret;
+	char logcat_argv[sizeof(FATAL_BACKUP_LOGCAT_NAME)];
+	int argv_buf_size;
 
 	ret = nonseekable_open(inode, file);
 	if (ret)
@@ -420,6 +525,21 @@ static int logger_open(struct inode *inode, struct file *file)
 	} else
 		file->private_data = log;
 
+	if(g_fatal_backup_logcat_pid == FATAL_BACKUP_PID_INITIAL)
+	{
+		argv_buf_size = current->mm->arg_end - current->mm->arg_start;
+
+		if(argv_buf_size >= strlen(FATAL_BACKUP_LOGCAT_NAME))
+		{
+			memcpy(logcat_argv, (char*)current->mm->arg_start, strlen(FATAL_BACKUP_LOGCAT_NAME));
+			
+			if(0 == strncmp(logcat_argv, FATAL_BACKUP_LOGCAT_NAME, strlen(FATAL_BACKUP_LOGCAT_NAME)))
+			{
+				g_fatal_backup_logcat_pid = current->pid;
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -432,8 +552,15 @@ static int logger_release(struct inode *ignored, struct file *file)
 {
 	if (file->f_mode & FMODE_READ) {
 		struct logger_reader *reader = file->private_data;
+#if defined(CONFIG_FEATURE_NCMC_RUBY)
+		mutex_lock(&reader->log->mutex);
+		list_del(&reader->list);
+		mutex_unlock(&reader->log->mutex);
+		kfree(reader);
+#else
 		list_del(&reader->list);
 		kfree(reader);
+#endif
 	}
 
 	return 0;
@@ -611,6 +738,10 @@ static int __init logger_init(void)
 		goto out;
 
 out:
+
+	backup_arm_write();
+
+	backup_log_init();
 	return ret;
 }
 device_initcall(logger_init);

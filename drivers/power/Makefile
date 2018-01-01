@@ -49,3 +49,11 @@ obj-$(CONFIG_PM8XXX_CCADC)	+= pm8xxx-ccadc.o
 obj-$(CONFIG_PM8921_BMS)	+= pm8921-bms.o
 obj-$(CONFIG_PM8921_CHARGER)	+= pm8921-charger.o
 obj-$(CONFIG_LTC4088_CHARGER)	+= ltc4088-charger.o
+obj-$(CONFIG_FEATURE_NCMC_DIAG_PW)     += ncdiagd_power.o
+
+
+obj-$(CONFIG_FEATURE_NCMC_BATTERY_IM) += battim.o
+obj-$(CONFIG_FEATURE_NCMC_BATTERY_IM) += pm_obs_api.o
+
+
+obj-$(CONFIG_PM8921_CHARGER) += ncm_charge_protect_sts.o

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef _MSM_H
 #define _MSM_H
@@ -530,6 +534,10 @@ int msm_mctl_buf_return_buf(struct msm_cam_media_controller *pmctl,
 int msm_mctl_pp_mctl_divert_done(struct msm_cam_media_controller *p_mctl,
 					void __user *arg);
 void msm_release_ion_client(struct kref *ref);
+
+// global parameters
+extern int i2c_error_flag;
+
 #endif /* __KERNEL__ */
 
 #endif /* _MSM_H */

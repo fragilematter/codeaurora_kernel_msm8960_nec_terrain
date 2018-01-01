@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __PMIC8XXX_PWRKEY_H__
 #define __PMIC8XXX_PWRKEY_H__
@@ -34,5 +38,7 @@ struct pm8xxx_pwrkey_platform_data  {
 	u32  kpd_trigger_delay_us;
 	u32  wakeup;
 };
+
+unsigned char pwr_key_cmd(int *val);
 
 #endif /* __PMIC8XXX_PWRKEY_H__ */

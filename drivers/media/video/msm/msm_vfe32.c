@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/uaccess.h>
 #include <linux/interrupt.h>
@@ -3966,6 +3970,9 @@ void msm_vfe_subdev_release(struct platform_device *pdev)
 	msm_camio_bus_scale_cfg(
 		sync->sdata->pdata->cam_bus_scale_table, S_EXIT);
 	vfe_syncdata = NULL;
+
+	vfe32_ctrl->register_total = 0;
+
 }
 
 static int __devinit vfe32_probe(struct platform_device *pdev)

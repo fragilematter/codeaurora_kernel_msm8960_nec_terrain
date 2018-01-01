@@ -14,6 +14,11 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __ASM_ARCH_MSM_HSUSB_H
 #define __ASM_ARCH_MSM_HSUSB_H
@@ -265,6 +270,10 @@ struct msm_otg {
 	struct pm_qos_request_list pm_qos_req_dma;
 #define XO_SHUTDOWN			BIT(2)
 	int reset_counter;
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	struct delayed_work bat_timer;
+	struct delayed_work bat_timer2;
+#endif
 };
 
 struct msm_hsic_host_platform_data {

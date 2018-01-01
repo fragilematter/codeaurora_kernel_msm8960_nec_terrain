@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -30,6 +34,15 @@
 #include "../codecs/wcd9310.h"
 
 /* 8960 machine driver */
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+  #include <../../drivers/sndamp/sndamp_api.h>
+  #include <../../drivers/sndamp/sndamp_ctrl_yda160.h>
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA160 */
+
+#ifdef CONFIG_AUDIENCE_ES310
+#include <../../../drivers/misc/es310.h>
+#endif
+#include <linux/pm_obs_api.h>
 
 #define PM8921_GPIO_BASE		NR_GPIO_IRQS
 #define PM8921_IRQ_BASE (NR_MSM_IRQS + NR_GPIO_IRQS)
@@ -64,19 +77,214 @@
 
 static u32 top_spk_pamp_gpio  = PM8921_GPIO_PM_TO_SYS(18);
 static u32 bottom_spk_pamp_gpio = PM8921_GPIO_PM_TO_SYS(19);
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static int msm8960_spk_control;
 static int msm8960_ext_bottom_spk_pamp;
 static int msm8960_ext_top_spk_pamp;
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 static int msm8960_slim_0_rx_ch = 1;
 static int msm8960_slim_0_tx_ch = 1;
 
 static int msm8960_btsco_rate = BTSCO_RATE_8KHZ;
 static int msm8960_btsco_ch = 1;
 
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+static int msm8960_yda160_mux;
+#endif
+
 static struct clk *codec_clk;
 static int clk_users;
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static int msm8960_headset_gpios_configured;
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+int yda160_amp_event(struct snd_soc_dapm_widget *w,
+	struct snd_kcontrol *k, int event)
+{
+	pr_debug("%s() %x\n", __func__, SND_SOC_DAPM_EVENT_ON(event));
+	if(SND_SOC_DAPM_EVENT_ON(event))
+	{
+		gpio_set_value_cansleep( PM8921_GPIO_PM_TO_SYS(31), 0 );
+		mdelay(5);
+		gpio_set_value_cansleep(PM8921_GPIO_PM_TO_SYS(31), 1 );
+		if(msm8960_yda160_mux == 1 || msm8960_yda160_mux == 3) {
+			gpio_set_value_cansleep( PM8921_GPIO_PM_TO_SYS(32), 1 );
+			mdelay(10);
+		}
+		switch(msm8960_yda160_mux) {
+		case 1:
+			sndamp_api_power_on_speaker_stereo();
+			break;
+		case 2:
+			sndamp_api_power_on_headset_stereo();
+			break;
+		case 3:
+			sndamp_api_power_on_headset_speaker_stereo();
+			break;
+		default:
+			pr_err("%s invalid case=0x%x\n", __func__, msm8960_yda160_mux);
+			break;
+		}
+             pm_obs_a_speaker(PM_OBS_SPEAKER_MODE, TRUE);
+	} else {
+		sndamp_api_power_off();
+		gpio_set_value_cansleep( PM8921_GPIO_PM_TO_SYS(32), 0 );
+		gpio_set_value_cansleep( PM8921_GPIO_PM_TO_SYS(31), 0 );
+                pm_obs_a_speaker(PM_OBS_SPEAKER_MODE, FALSE);
+	}
+	return 0;
+}
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA160 */
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+static int yda168_gpio_ctl1 = PM8921_GPIO_PM_TO_SYS(11);
+static int yda168_gpio_ctl2 = PM8921_GPIO_PM_TO_SYS(12);
+static int yda168_gpios_config = 0;
+static int yda168_mode = 2;
+static int yda168_pwr = 0;
+static const char *yda168_function[] = {"ZERO", "CFG1", "CFG2", "CFG3"};
+#include <linux/pm_obs_api.h>
+void yda168_set_amp( int in_mode )
+{
+	if( !yda168_gpios_config ){
+		printk(KERN_DEBUG "set_amp not gpio configured \n");
+		return;
+	}
+
+	printk(KERN_DEBUG "set_amp %x %x %x \n", in_mode, yda168_pwr, yda168_gpios_config);
+	if(yda168_pwr == in_mode) {
+		printk(KERN_DEBUG "set_amp value \n");
+		return;
+	}
+	yda168_pwr = in_mode;
+	(yda168_pwr) ? pm_obs_a_speaker(PM_OBS_SPEAKER_MODE, TRUE) : pm_obs_a_speaker(PM_OBS_SPEAKER_MODE, FALSE);
+	switch( yda168_pwr )
+	{
+	case 0:/* PowerDown */
+		if(yda168_gpios_config & (1 << 0)) gpio_set_value_cansleep(yda168_gpio_ctl1, 0);
+		if(yda168_gpios_config & (1 << 1)) gpio_set_value_cansleep(yda168_gpio_ctl2, 0);
+		break;
+
+	case 1:/* Non-Clip Off (PowerUp) */
+		if(yda168_gpios_config & (1 << 0)) gpio_set_value_cansleep(yda168_gpio_ctl1, 0);
+		if(yda168_gpios_config & (1 << 1)) gpio_set_value_cansleep(yda168_gpio_ctl2, 1);
+		pr_debug("%s: sleep 20 ms after Ctl \n", __func__);
+		usleep_range(20000, 20000);
+		break;
+
+	case 2:/* Non-Clip B (PowerUp) */
+		if(yda168_gpios_config & (1 << 0)) gpio_set_value_cansleep(yda168_gpio_ctl1, 1);
+		if(yda168_gpios_config & (1 << 1)) gpio_set_value_cansleep(yda168_gpio_ctl2, 0);
+		pr_debug("%s: sleep 20 ms after Ctl \n", __func__);
+		usleep_range(20000, 20000);
+		break;
+
+	case 3:/* Non-Clip A (PowerUp) */
+		if(yda168_gpios_config & (1 << 0)) gpio_set_value_cansleep(yda168_gpio_ctl1, 1);
+		if(yda168_gpios_config & (1 << 1)) gpio_set_value_cansleep(yda168_gpio_ctl2, 1);
+		pr_debug("%s: sleep 20 ms after Ctl \n", __func__);
+		usleep_range(20000, 20000);
+		break;
+	default:
+		printk(KERN_DEBUG "%s err case \n", __func__);
+		break;
+	}
+}
+
+static int yda168_get_spk(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	pr_debug("%s: yda168_mode = %d", __func__, yda168_mode);
+	ucontrol->value.integer.value[0] = yda168_mode;
+	return 0;
+}
+static int yda168_set_spk(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	pr_debug("%s() %x \n", __func__, (unsigned int)ucontrol->value.integer.value[0]);
+	if (yda168_mode == ucontrol->value.integer.value[0]) {
+		printk(KERN_DEBUG "set_amp value \n");
+		return 0;
+	}
+	yda168_mode = ucontrol->value.integer.value[0];
+	if(yda168_pwr) yda168_set_amp(yda168_mode);
+	return 1;
+}
+
+void yda168_init(void)
+{
+	int ret = 0;
+	struct pm_gpio param = {
+		.direction      = PM_GPIO_DIR_OUT,
+		.output_buffer  = PM_GPIO_OUT_BUF_CMOS,
+		.output_value   = 0,
+		.pull           = PM_GPIO_PULL_NO,
+		.vin_sel        = PM_GPIO_VIN_S4,
+		.out_strength   = PM_GPIO_STRENGTH_HIGH,
+		.function       = PM_GPIO_FUNC_NORMAL,
+	};
+
+	ret = gpio_request(yda168_gpio_ctl1, "YDA168 CTL1");
+	if (ret) {
+		pr_err("%s: Error requesting GPIO %d\n", __func__, yda168_gpio_ctl1);
+		goto err;
+	}
+	ret = pm8xxx_gpio_config(yda168_gpio_ctl1, &param);
+	if (ret){
+		pr_err("%s: Failed to configure yda168_ctl1 %u\n", __func__, yda168_gpio_ctl1);
+		goto err;
+	} else {
+		pr_debug("%s: yda168_gpio_ctl1\n", __func__);
+		gpio_direction_output(yda168_gpio_ctl1, 0);
+		yda168_gpios_config |= (1 << 0);
+	}
+
+	ret = gpio_request(yda168_gpio_ctl2, "YDA168 CTL2");
+	if (ret) {
+		pr_err("%s: Error requesting GPIO %d\n", __func__, yda168_gpio_ctl2);
+		goto err;
+	}
+	ret = pm8xxx_gpio_config(yda168_gpio_ctl2, &param);
+	if (ret){
+		pr_err("%s: Failed to configure yda168_ctl1 %u\n", __func__, yda168_gpio_ctl1);
+		goto err;
+	} else {
+		pr_debug("%s: yda168_gpio_ctl2\n", __func__);
+		gpio_direction_output(yda168_gpio_ctl2, 0);
+		yda168_gpios_config |= (1 << 1);
+	}
+
+err:
+	printk(KERN_DEBUG "%s config %x \n", __func__, yda168_gpios_config);
+}
+
+static int yda168_amp_event(struct snd_soc_dapm_widget *w,
+	struct snd_kcontrol *k, int event)
+{
+	pr_debug("%s() %x\n", __func__, SND_SOC_DAPM_EVENT_ON(event));
+	if(SND_SOC_DAPM_EVENT_ON(event)) {
+		if(!strncmp(w->name, "SNDAMP", 6)){
+			yda168_set_amp(yda168_mode);
+		}else{
+			pr_err("%s() Invalid Speaker Widget = %s\n",__func__, w->name);
+			return -EINVAL;
+		}
+
+	} else {
+		if(!strncmp(w->name, "SNDAMP", 6)){
+			yda168_set_amp(0);
+		}else{
+			pr_err("%s() Invalid Speaker Widget = %s\n",__func__, w->name);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA168 */
+
 
 static struct snd_soc_jack hs_jack;
 static struct snd_soc_jack button_jack;
@@ -107,6 +315,7 @@ static struct tabla_mbhc_config mbhc_cfg = {
 
 static struct mutex cdc_mclk_mutex;
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static void msm8960_enable_ext_spk_amp_gpio(u32 spk_amp_gpio)
 {
 	int ret = 0;
@@ -330,6 +539,7 @@ static int msm8960_spkramp_event(struct snd_soc_dapm_widget *w,
 	}
 	return 0;
 }
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 
 static int msm8960_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 					bool dapm)
@@ -393,11 +603,21 @@ static const struct snd_soc_dapm_widget msm8960_dapm_widgets[] = {
 	SND_SOC_DAPM_SUPPLY("MCLK",  SND_SOC_NOPM, 0, 0,
 	msm8960_mclk_event, SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	SND_SOC_DAPM_SPK("Ext Spk Bottom Pos", msm8960_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Bottom Neg", msm8960_spkramp_event),
 
 	SND_SOC_DAPM_SPK("Ext Spk Top Pos", msm8960_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top Neg", msm8960_spkramp_event),
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+	SND_SOC_DAPM_SPK("SNDAMP", yda160_amp_event),
+#endif /* CONFIG_FEATURE_NCMC_AUDIO_YDA160 */
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+	SND_SOC_DAPM_SPK("SNDAMP", yda168_amp_event),
+#endif /*CONFIG_FEATURE_NCMC_AUDIO_YDA168*/
 
 	SND_SOC_DAPM_MIC("Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
@@ -419,12 +639,21 @@ static const struct snd_soc_dapm_route common_audio_map[] = {
 	{"RX_BIAS", NULL, "MCLK"},
 	{"LDO_H", NULL, "MCLK"},
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	/* Speaker path */
 	{"Ext Spk Bottom Pos", NULL, "LINEOUT1"},
 	{"Ext Spk Bottom Neg", NULL, "LINEOUT3"},
 
 	{"Ext Spk Top Pos", NULL, "LINEOUT2"},
 	{"Ext Spk Top Neg", NULL, "LINEOUT4"},
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+	{"SNDAMP", NULL, "LINEOUT2"},
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA160 */
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+	{"SNDAMP", NULL, "LINEOUT1"},
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA168*/
+
 
 	/* Microphone path */
 	{"AMIC1", NULL, "MIC BIAS1 Internal1"},
@@ -507,12 +736,22 @@ static const struct soc_enum msm8960_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, spk_function),
 	SOC_ENUM_SINGLE_EXT(2, slim0_rx_ch_text),
 	SOC_ENUM_SINGLE_EXT(4, slim0_tx_ch_text),
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+	SOC_ENUM_SINGLE_EXT(4, yda168_function),
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA168 */
 };
 
 static const char *btsco_rate_text[] = {"8000", "16000"};
 static const struct soc_enum msm8960_btsco_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
 };
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+static const char *yda160_mux_text[] = {"none","spk", "hs","spkhs"};
+static const struct soc_enum msm8960_yda160_mux_enum[] = {
+		SOC_ENUM_SINGLE_EXT(4, yda160_mux_text),
+};
+#endif
 
 static int msm8960_slim_0_rx_ch_get(struct snd_kcontrol *kcontrol,
 	struct snd_ctl_elem_value *ucontrol)
@@ -578,19 +817,140 @@ static int msm8960_btsco_rate_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+static int msm8960_yda160_mux_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	msm8960_yda160_mux = ucontrol->value.integer.value[0];
+	return 0;
+}
+
+static int msm8960_yda160_mux_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = msm8960_yda160_mux;
+	return 1;
+}
+
+static int msm8960_yda160_put(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	sndamp_i2c_write_data data = { 0x00, 0x00 };
+	sndamp_device_type devtype = SNDAMP_DEVICE_NONE;
+
+	switch(msm8960_yda160_mux) {
+	case 0:
+		break;
+	case 1:
+		devtype =  SNDAMP_DEVICE_SPEAKER_STEREO;
+		break;
+	case 2:
+		devtype =  SNDAMP_DEVICE_HEADSET_STEREO;
+		break;
+	case 3:
+		devtype =  SNDAMP_DEVICE_HEADSET_STEREO_SPEAKER_STEREO;
+		break;
+	}
+
+	if(!strcmp(ucontrol->id.name, "YDANonClip2")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_4_NONCLIP2); //0x84;
+	}else if(!strcmp(ucontrol->id.name, "YDANonClip2Time")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_5_ATTACK_RELEASE_TIME);
+	}else if(!strcmp(ucontrol->id.name, "YDA Monaural")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_7_MONAURAL);
+	}else if(!strcmp(ucontrol->id.name, "YDA Line1Lch")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_8_LINE1_LCH);
+	}else if(!strcmp(ucontrol->id.name, "YDA Line1Rch")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_9_LINE1_RCH);
+	}else if(!strcmp(ucontrol->id.name, "YDA Line2Lch")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_10_LINE2_LCH);
+	}else if(!strcmp(ucontrol->id.name, "YDA Line2Rch")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_11_LINE2_RCH);
+	}else if(!strcmp(ucontrol->id.name, "YDASPKATT")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_14_SPEAKER_ATT);
+	}else if(!strcmp(ucontrol->id.name, "YDAHPATTL")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_15_HEADPHONE_ATT_LCH);
+	}else if(!strcmp(ucontrol->id.name, "YDAHPATTR")){
+		data.reg = SNDAMP_ADDR(SNDAMP_REG_16_HEADPHONE_ATT_RCH);
+	}
+
+	data.val = ucontrol->value.bytes.data[0];
+	printk(KERN_ERR "%s r=0x%x v=0x%x 0x%x 0x%x\n", __func__, data.reg, data.val, (unsigned int)ucontrol->value.integer.value[0],ucontrol->value.bytes.data[0]);
+	sndamp_api_direct_override_reg_set(devtype, &data);
+	return 0;
+}
+
+static int msm8960_yda160_get(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	return 1;
+}
+#endif
+
 static const struct snd_kcontrol_new tabla_msm8960_controls[] = {
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	SOC_ENUM_EXT("Speaker Function", msm8960_enum[0], msm8960_get_spk,
 		msm8960_set_spk),
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 	SOC_ENUM_EXT("SLIM_0_RX Channels", msm8960_enum[1],
 		msm8960_slim_0_rx_ch_get, msm8960_slim_0_rx_ch_put),
 	SOC_ENUM_EXT("SLIM_0_TX Channels", msm8960_enum[2],
 		msm8960_slim_0_tx_ch_get, msm8960_slim_0_tx_ch_put),
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+	SOC_ENUM_EXT("SpeakerConfig", msm8960_enum[3], yda168_get_spk,
+		yda168_set_spk),
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA168 */
 };
 
 static const struct snd_kcontrol_new int_btsco_rate_mixer_controls[] = {
 	SOC_ENUM_EXT("Internal BTSCO SampleRate", msm8960_btsco_enum[0],
 		msm8960_btsco_rate_get, msm8960_btsco_rate_put),
 };
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+static int msm8960_yda160_info(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count = 1;
+	return 0;
+}
+
+static const struct snd_kcontrol_new int_yda160_mixer_controls[] = {
+	SOC_ENUM_EXT("SPKHS MUX", msm8960_yda160_mux_enum[0],
+		msm8960_yda160_mux_get, msm8960_yda160_mux_put),
+	SOC_SINGLE_EXT_INFO("YDANonClip2", SNDAMP_REG_4_NONCLIP2,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDANonClip2Time", SNDAMP_REG_5_ATTACK_RELEASE_TIME,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDA Monaural", SNDAMP_REG_7_MONAURAL,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDA Line1Lch",  SNDAMP_REG_8_LINE1_LCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDA Line1Rch",  SNDAMP_REG_9_LINE1_RCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDA Line2Lch",  SNDAMP_REG_10_LINE2_LCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDA Line2Rch",  SNDAMP_REG_11_LINE2_RCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDASPKATT",  SNDAMP_REG_14_SPEAKER_ATT,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDAHPATTL",  SNDAMP_REG_15_HEADPHONE_ATT_LCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+	SOC_SINGLE_EXT_INFO("YDAHPATTR",  SNDAMP_REG_16_HEADPHONE_ATT_RCH,
+		0, 0xff, 0, msm8960_yda160_get,
+		msm8960_yda160_put, msm8960_yda160_info),
+};
+#endif
 
 static int msm8960_btsco_init(struct snd_soc_pcm_runtime *rtd)
 {
@@ -709,19 +1069,42 @@ static int msm8960_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	if (err < 0)
 		return err;
 
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+	err = snd_soc_add_controls(codec, int_yda160_mixer_controls,
+				ARRAY_SIZE(int_yda160_mixer_controls));
+	if (err < 0)
+		return err;
+#endif
+
 	snd_soc_dapm_new_controls(dapm, msm8960_dapm_widgets,
 				ARRAY_SIZE(msm8960_dapm_widgets));
 
 	snd_soc_dapm_add_routes(dapm, common_audio_map,
 		ARRAY_SIZE(common_audio_map));
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Neg");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Neg");
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA160
+	snd_soc_dapm_enable_pin(dapm, "SNDAMP");
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA160 */
+#ifdef CONFIG_FEATURE_NCMC_AUDIO_YDA168
+	yda168_init();
+	snd_soc_dapm_enable_pin(dapm, "SNDAMP");
+#endif/* CONFIG_FEATURE_NCMC_AUDIO_YDA168*/
 
 	snd_soc_dapm_sync(dapm);
-
+#ifdef CONFIG_AUDIENCE_ES310
+	err = es310_add_controls(codec); 
+	if (err < 0)
+	{
+		pr_debug("es310_add_controls register fail \n");
+	}
+#endif
 	err = snd_soc_jack_new(codec, "Headset Jack",
 			       (SND_JACK_HEADSET | SND_JACK_OC_HPHL |
 				SND_JACK_OC_HPHR),
@@ -889,7 +1272,7 @@ static int msm8960_aux_pcm_get_gpios(void)
 	int ret = 0;
 
 	pr_debug("%s\n", __func__);
-
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	ret = gpio_request(GPIO_AUX_PCM_DOUT, "AUX PCM DOUT");
 	if (ret < 0) {
 		pr_err("%s: Failed to request gpio(%d): AUX PCM DOUT",
@@ -927,15 +1310,18 @@ fail_din:
 	gpio_free(GPIO_AUX_PCM_DOUT);
 fail_dout:
 
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 	return ret;
 }
 
 static int msm8960_aux_pcm_free_gpios(void)
 {
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	gpio_free(GPIO_AUX_PCM_DIN);
 	gpio_free(GPIO_AUX_PCM_DOUT);
 	gpio_free(GPIO_AUX_PCM_SYNC);
 	gpio_free(GPIO_AUX_PCM_CLK);
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 
 	return 0;
 }
@@ -1334,6 +1720,7 @@ static struct snd_soc_card snd_soc_card_msm8960 = {
 static struct platform_device *msm8960_snd_device;
 static struct platform_device *msm8960_snd_tabla1x_device;
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static int msm8960_configure_headset_mic_gpios(void)
 {
 	int ret;
@@ -1384,7 +1771,7 @@ static void msm8960_free_headset_mic_gpios(void)
 		gpio_free(PM8921_GPIO_PM_TO_SYS(35));
 	}
 }
-
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 static int __init msm8960_audio_init(void)
 {
 	int ret;
@@ -1441,11 +1828,13 @@ static int __init msm8960_audio_init(void)
 		return ret;
 	}
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	if (msm8960_configure_headset_mic_gpios()) {
 		pr_err("%s Fail to configure headset mic gpios\n", __func__);
 		msm8960_headset_gpios_configured = 0;
 	} else
 		msm8960_headset_gpios_configured = 1;
+#endif/* CONFIG_FEATURE_NCMC_AUDIO*/
 
 	mutex_init(&cdc_mclk_mutex);
 	return ret;
@@ -1459,7 +1848,9 @@ static void __exit msm8960_audio_exit(void)
 		pr_err("%s: Not the right machine type\n", __func__);
 		return ;
 	}
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	msm8960_free_headset_mic_gpios();
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 	platform_device_unregister(msm8960_snd_device);
 	platform_device_unregister(msm8960_snd_tabla1x_device);
 	kfree(mbhc_cfg.calibration);

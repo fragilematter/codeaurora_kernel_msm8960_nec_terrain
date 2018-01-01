@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
@@ -30,13 +34,35 @@
 #define MODULE_NAME			"wcnss_8960"
 #define MAX_BUF_SIZE			0x51
 
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
 
+int ncmc_set_fatal_mode(int mode);
+
+
+static void riva_smsm_cb_fn(struct work_struct *);
+static DECLARE_WORK(riva_smsm_cb_work, riva_smsm_cb_fn);
+
+static void riva_fatal_fn(struct work_struct *);
+static DECLARE_WORK(riva_fatal_work, riva_fatal_fn);
 
 static struct delayed_work cancel_vote_work;
 static void *riva_ramdump_dev;
 static int riva_crash;
 static int ss_restart_inprogress;
 static int enable_riva_ssr;
+
+static void riva_smsm_cb_fn(struct work_struct *work)
+{
+    printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x04");
+    pr_err("%s: Initiating subsytem restart\n", MODULE_NAME);
+    subsystem_restart("riva");
+}
 
 static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 					uint32_t new_state)
@@ -45,6 +71,9 @@ static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 	char buffer[MAX_BUF_SIZE];
 	unsigned smem_reset_size;
 	unsigned size;
+    int                 ret = 0;
+    int                 retmode = OEM_NCMC_FATAL_MODE_INIT;
+    struct work_struct  work;
 
 	riva_crash = true;
 
@@ -84,10 +113,37 @@ static void smsm_state_cb_hdlr(void *data, uint32_t old_state,
 
 	ss_restart_inprogress = true;
 	subsystem_restart("riva");
+
+	if (new_state & SMSM_RESET) {
+		ss_restart_inprogress = true;
+    {
+        retmode = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_RIVA );
+        if ( retmode == OEM_NCMC_FATAL_MODE_ERR )
+        {
+            pr_err( "%s: fatal mode error \n", __func__ );
+            return ;
+        }
+        ret = schedule_work( &riva_smsm_cb_work );
+        if ( !ret )
+        {
+            pr_err( "%s: schedule_work err ret =%d \n", __func__, ret ) ;
+            riva_smsm_cb_fn( &work );
+        }
+    }
+	}
+}
+
+static void riva_fatal_fn(struct work_struct *work)
+{
+        printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x04");
+		subsystem_restart("riva");
 }
 
 static irqreturn_t riva_wdog_bite_irq_hdlr(int irq, void *dev_id)
 {
+	int ret;
+    int                 retmode = OEM_NCMC_FATAL_MODE_INIT;
+    struct work_struct  work;
 	riva_crash = true;
 
 	if (ss_restart_inprogress) {
@@ -102,6 +158,18 @@ static irqreturn_t riva_wdog_bite_irq_hdlr(int irq, void *dev_id)
 	ss_restart_inprogress = true;
 	subsystem_restart("riva");
 
+    retmode = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_RIVA );
+    if ( retmode == OEM_NCMC_FATAL_MODE_ERR )
+    {
+        pr_err( "%s: fatal mode error \n", __func__ );
+        return IRQ_HANDLED;
+    }
+	ret = schedule_work(&riva_fatal_work);
+    if ( !ret )
+    {
+        pr_err( "%s: schedule_work err ret =%d \n", __func__, ret ) ;
+        riva_fatal_fn( &work );
+    }
 	return IRQ_HANDLED;
 }
 

@@ -353,3 +353,17 @@ config PM8921_BMS
 	  Say Y here to enable support for pm8921 chip bms subdevice
 
 endif # POWER_SUPPLY
+
+config FEATURE_NCMC_DIAG_PW
+  bool "NCMC Power Diag Command"
+  default y
+  help
+    NCMC Power Diag Command
+
+# 12/01/12 m-okada [Q89-PM-025] Added for Battery Adjustment
+config FEATURE_NCMC_BATTERY_IM
+  bool "NCMC battery information manager"
+  default y
+  help
+    Say Y to enable support for battery information manager.
+    It enables battery adjustment from userland.

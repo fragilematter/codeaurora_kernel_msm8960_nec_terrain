@@ -10,6 +10,10 @@
  *
  * - Based on mmci.h
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef _MSM_SDCC_H
 #define _MSM_SDCC_H
@@ -414,6 +418,9 @@ struct msmsdcc_host {
 	struct msmsdcc_msm_bus_vote msm_bus_vote;
 	struct device_attribute	max_bus_bw;
 	struct device_attribute	polling;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	bool acmd;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	struct device_attribute idle_timeout;
 };
 

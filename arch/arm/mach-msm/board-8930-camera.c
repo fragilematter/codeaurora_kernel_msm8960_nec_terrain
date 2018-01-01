@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <asm/mach-types.h>
 #include <linux/gpio.h>
@@ -29,12 +34,14 @@ static struct i2c_board_info cam_expander_i2c_info[] = {
 	},
 };
 
+#ifdef CONFIG_MSM_CAMERA_FLASH
 static struct msm_cam_expander_info cam_expander_info[] = {
 	{
 		cam_expander_i2c_info,
 		MSM_8930_GSBI4_QUP_I2C_BUS_ID,
 	},
 };
+#endif
 #endif
 
 static struct gpiomux_setting cam_settings[] = {
@@ -355,11 +362,13 @@ static struct camera_vreg_t msm_8930_back_cam_vreg[] = {
 	{"cam_vaf", REG_LDO, 2800000, 2850000, 300000},
 };
 
+#ifdef CONFIG_OV2720
 static struct camera_vreg_t msm_8930_front_cam_vreg[] = {
 	{"cam_vio", REG_LDO, 1800000, 1800000, 16000},
 	{"cam_vana", REG_LDO, 2800000, 2850000, 85600},
 	{"cam_vdig", REG_LDO, 1200000, 1200000, 105000},
 };
+#endif
 
 static struct gpio msm8930_common_cam_gpio[] = {
 	{5, GPIOF_DIR_IN, "CAMIF_MCLK"},
@@ -367,24 +376,29 @@ static struct gpio msm8930_common_cam_gpio[] = {
 	{21, GPIOF_DIR_IN, "CAMIF_I2C_CLK"},
 };
 
+#ifdef CONFIG_OV2720
 static struct gpio msm8930_front_cam_gpio[] = {
 	{76, GPIOF_DIR_OUT, "CAM_RESET"},
 };
+#endif
 
 static struct gpio msm8930_back_cam_gpio[] = {
 	{107, GPIOF_DIR_OUT, "CAM_RESET"},
 };
 
+#ifdef CONFIG_OV2720
 static struct msm_gpio_set_tbl msm8930_front_cam_gpio_set_tbl[] = {
 	{76, GPIOF_OUT_INIT_LOW, 1000},
 	{76, GPIOF_OUT_INIT_HIGH, 4000},
 };
+#endif
 
 static struct msm_gpio_set_tbl msm8930_back_cam_gpio_set_tbl[] = {
 	{107, GPIOF_OUT_INIT_LOW, 1000},
 	{107, GPIOF_OUT_INIT_HIGH, 4000},
 };
 
+#ifdef CONFIG_OV2720
 static struct msm_camera_gpio_conf msm_8930_front_cam_gpio_conf = {
 	.cam_gpiomux_conf_tbl = msm8930_cam_2d_configs,
 	.cam_gpiomux_conf_tbl_size = ARRAY_SIZE(msm8930_cam_2d_configs),
@@ -395,6 +409,7 @@ static struct msm_camera_gpio_conf msm_8930_front_cam_gpio_conf = {
 	.cam_gpio_set_tbl = msm8930_front_cam_gpio_set_tbl,
 	.cam_gpio_set_tbl_size = ARRAY_SIZE(msm8930_front_cam_gpio_set_tbl),
 };
+#endif
 
 static struct msm_camera_gpio_conf msm_8930_back_cam_gpio_conf = {
 	.cam_gpiomux_conf_tbl = msm8930_cam_2d_configs,
@@ -443,6 +458,7 @@ static struct msm_camera_sensor_info msm_camera_sensor_imx074_data = {
 	.actuator_info = &imx074_actuator_info
 };
 
+#ifdef CONFIG_MT9M114
 static struct camera_vreg_t msm_8930_mt9m114_vreg[] = {
 	{"cam_vio", REG_LDO, 1800000, 1800000, 16000},
 	{"cam_vdig", REG_LDO, 1200000, 1200000, 105000},
@@ -469,6 +485,10 @@ static struct msm_camera_sensor_info msm_camera_sensor_mt9m114_data = {
 	.csi_if = 1,
 	.camera_type = FRONT_CAMERA_2D,
 };
+#endif
+
+
+#ifdef CONFIG_OV2720
 
 static struct msm_camera_sensor_flash_data flash_ov2720 = {
 	.flash_type	= MSM_CAMERA_FLASH_NONE,
@@ -489,6 +509,8 @@ static struct msm_camera_sensor_info msm_camera_sensor_ov2720_data = {
 	.csi_if	= 1,
 	.camera_type = FRONT_CAMERA_2D,
 };
+
+#endif
 
 static struct camera_vreg_t msm_8930_s5k3l1yx_vreg[] = {
 	{"cam_vdig", REG_LDO, 1200000, 1200000, 105000},
@@ -537,14 +559,18 @@ struct i2c_board_info msm8930_camera_i2c_boardinfo[] = {
 	I2C_BOARD_INFO("imx074", 0x1A),
 	.platform_data = &msm_camera_sensor_imx074_data,
 	},
+#ifdef CONFIG_OV2720
 	{
 	I2C_BOARD_INFO("ov2720", 0x6C),
 	.platform_data = &msm_camera_sensor_ov2720_data,
 	},
+#endif
+#ifdef CONFIG_MT9M114
 	{
 	I2C_BOARD_INFO("mt9m114", 0x48),
 	.platform_data = &msm_camera_sensor_mt9m114_data,
 	},
+#endif
 	{
 	I2C_BOARD_INFO("s5k3l1yx", 0x20),
 	.platform_data = &msm_camera_sensor_s5k3l1yx_data,

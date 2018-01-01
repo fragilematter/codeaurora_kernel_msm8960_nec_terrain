@@ -28,6 +28,11 @@
  *     MA 02111-1307 USA
  *
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -834,6 +839,11 @@ void irlap_wait_min_turn_around(struct irlap_cb *self, struct qos_info *qos)
 	 *  must send for the requested time period (min turn time)
 	 */
 	self->xbofs_delay = irlap_min_turn_time_in_bytes(speed, min_turn_time);
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+/* temp temp temp */
+	IRDA_DEBUG(4, "%s(), xbofs_delay =%d\n", __func__, self->xbofs_delay);
+/* temp temp temp */
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 }
 
 /*
@@ -950,8 +960,13 @@ void irlap_apply_default_connection_parameters(struct irlap_cb *self)
 	IRDA_ASSERT(self->magic == LAP_MAGIC, return;);
 
 	/* xbofs : Default value in NDM */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+	self->next_bofs   = 10;
+	self->bofs_count  = 10;
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 	self->next_bofs   = 12;
 	self->bofs_count  = 12;
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 
 	/* NDM Speed is 9600 */
 	irlap_change_speed(self, 9600, TRUE);
@@ -985,8 +1000,13 @@ void irlap_apply_default_connection_parameters(struct irlap_cb *self)
 	self->qos_rx.data_size.value = 64;
 	self->qos_tx.window_size.value = 1;
 	self->qos_rx.window_size.value = 1;
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+	self->qos_tx.additional_bofs.value = 10;
+	self->qos_rx.additional_bofs.value = 10;
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 	self->qos_tx.additional_bofs.value = 12;
 	self->qos_rx.additional_bofs.value = 12;
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 	self->qos_tx.link_disc_time.value = 0;
 	self->qos_rx.link_disc_time.value = 0;
 

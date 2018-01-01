@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -22,6 +26,7 @@
 
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/input/pmic8xxx-pwrkey.h>
+#include <linux/keypad_cmd.h>
 
 #define PON_CNTL_1 0x1C
 #define PON_CNTL_PULL_UP BIT(7)
@@ -38,10 +43,18 @@ struct pmic8xxx_pwrkey {
 	const struct pm8xxx_pwrkey_platform_data *pdata;
 };
 
+static struct input_dev *pwr_key_cmd_pwr;
+
 static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
-
+	int key_mask;
+	
+	key_mask = keypad_mask_get();
+	if( key_mask ){
+		return IRQ_HANDLED;
+	}
+	
 	input_report_key(pwrkey->pwr, KEY_POWER, 1);
 	input_sync(pwrkey->pwr);
 
@@ -51,12 +64,32 @@ static irqreturn_t pwrkey_press_irq(int irq, void *_pwrkey)
 static irqreturn_t pwrkey_release_irq(int irq, void *_pwrkey)
 {
 	struct pmic8xxx_pwrkey *pwrkey = _pwrkey;
+	int key_mask,key;
 
+	key_mask = keypad_mask_get();
+	if( key_mask ){
+		printk(KERN_DEBUG "[pmic8058-pwekey]%s: (key_mask:0x%02X) \n", __func__,key_mask);
+		if( key_mask & KEY_DIAG_FLG_RAND_IN ) {
+			key = KEY_POWER;
+			printk(KERN_DEBUG "[pmic8058-pwekey]%s: (key_mask:0x%02X) (key:0x%02X)\n", __func__,key_mask,key);
+			keypad_diag_func( key );
+		}
+		return IRQ_HANDLED;
+	}
+	
 	input_report_key(pwrkey->pwr, KEY_POWER, 0);
 	input_sync(pwrkey->pwr);
 
 	return IRQ_HANDLED;
 }
+
+unsigned char pwr_key_cmd(int *val)
+{
+	input_report_key(pwr_key_cmd_pwr,val[1],val[2]);
+	input_sync(pwr_key_cmd_pwr);
+	return 1;
+}
+EXPORT_SYMBOL(pwr_key_cmd);
 
 #ifdef CONFIG_PM_SLEEP
 static int pmic8xxx_pwrkey_suspend(struct device *dev)
@@ -158,6 +191,8 @@ static int __devinit pmic8xxx_pwrkey_probe(struct platform_device *pdev)
 	pwrkey->pwr = pwr;
 
 	platform_set_drvdata(pdev, pwrkey);
+
+	pwr_key_cmd_pwr = pwr;
 
 	err = request_any_context_irq(key_press_irq, pwrkey_press_irq,
 		IRQF_TRIGGER_RISING, "pmic8xxx_pwrkey_press", pwrkey);

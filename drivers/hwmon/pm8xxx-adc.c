@@ -12,6 +12,11 @@
  *
  * Qualcomm's PM8921/PM8018 ADC Arbiter driver
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
 #include <linux/kernel.h>
@@ -698,6 +703,26 @@ uint32_t pm8xxx_adc_read(enum pm8xxx_adc_channels channel,
 		goto fail_unlock;
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    switch(channel)
+    {
+      case CHANNEL_BATT_THERM_MV:
+          channel = CHANNEL_BATT_THERM;
+          break;
+          
+      case CHANNEL_MUXOFF_MV:
+          channel = CHANNEL_MUXOFF;
+          break;
+          
+      case CHANNEL_PA_THERM0_MV:
+          channel = ADC_MPP_1_AMUX3;
+          break;
+          
+      default:
+          break;
+    }
+#endif
+
 	if (channel < PM8XXX_CHANNEL_MPP_SCALE1_IDX) {
 		mpp_scale = PREMUX_MPP_SCALE_0;
 		adc_pmic->conv->amux_channel = channel;
@@ -1059,6 +1084,28 @@ static int get_mpp_adc(void *data, u64 *val)
 }
 DEFINE_SIMPLE_ATTRIBUTE(reg_mpp_fops, get_mpp_adc, NULL, "%llu\n");
 
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+/* get register's raw value. */
+static int get_reg_adc(void *data, u64 *val)
+{
+	struct pm8xxx_adc_chan_result result;
+	int i = (int)data;
+	int rc;
+
+	pr_err("pm8xxx_adc_read start\n");
+	rc = pm8xxx_adc_read(i, &result);
+	if (!rc)
+		pr_info("ADC value raw:0x%x physical:%lld\n",
+			result.adc_code, result.physical);
+	*val = result.adc_code;
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(reg_raw_fops, get_reg_adc, NULL, "0x%llx\n");
+#endif
+
+
 #ifdef CONFIG_DEBUG_FS
 static void create_debugfs_entries(void)
 {
@@ -1075,6 +1122,12 @@ static void create_debugfs_entries(void)
 			0644, pmic_adc->dent,
 			(void *)pmic_adc->adc_channel[i].channel_name,
 			&reg_fops);
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+    debugfs_create_file("vbat_reg_val", 0644, pmic_adc->dent,
+            (void *)CHANNEL_VBAT, &reg_raw_fops);
+#endif
+
 }
 #else
 static inline void create_debugfs_entries(void)

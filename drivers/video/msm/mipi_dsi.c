@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -34,6 +39,15 @@
 #include "mipi_dsi.h"
 #include "mdp.h"
 #include "mdp4.h"
+#if defined (LCD_DEVICE_D121M_PT)
+#include "mipi_renesas_d121m.h"
+#elif defined (LCD_DEVICE_D121F_PT)
+#include "mipi_renesas_d121f.h"
+#elif defined (LCD_DEVICE_G121S_PT)
+#include "mipi_renesas_g121s.h"
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+#include "mipi_renesas_hd.h"
+#endif
 
 u32 dsi_irq;
 
@@ -61,6 +75,8 @@ static struct platform_driver mipi_dsi_driver = {
 };
 
 struct device dsi_dev;
+
+static int mipi_dsi_power_on = 0;
 
 static int mipi_dsi_off(struct platform_device *pdev)
 {
@@ -132,8 +148,15 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	mipi_dsi_ahb_ctrl(0);
 	local_bh_enable();
 
+//	mipi_dsi_unprepare_clocks();
+	if (mipi_dsi_power_on == 1)
+	{
 	if (mipi_dsi_pdata && mipi_dsi_pdata->dsi_power_save)
+		{
 		mipi_dsi_pdata->dsi_power_save(0);
+			mipi_dsi_power_on = 0;
+		}
+	}
 
 	if (mdp_rev >= MDP_REV_41)
 		mutex_unlock(&mfd->dma->ov_mutex);
@@ -164,10 +187,19 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	var = &fbi->var;
 	pinfo = &mfd->panel_info;
 
-	if (mipi_dsi_pdata && mipi_dsi_pdata->dsi_power_save)
-		mipi_dsi_pdata->dsi_power_save(1);
+	if (mipi_dsi_power_on == 0)
+	{
+		if (mipi_dsi_pdata && mipi_dsi_pdata->dsi_power_save)
+		{
+			mipi_dsi_pdata->dsi_power_save(1);
+			mipi_dsi_power_on = 1;
+		}
+	}
 
+	printk("%s Calling cont_splash_clk_ctrl 0 \n",__func__);
 	cont_splash_clk_ctrl();
+	//mipi_dsi_prepare_clocks();
+
 	local_bh_disable();
 	mipi_dsi_ahb_ctrl(1);
 	local_bh_enable();
@@ -255,15 +287,6 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	}
 
 	mipi_dsi_host_init(mipi);
-
-	if (mipi->force_clk_lane_hs) {
-		u32 tmp;
-
-		tmp = MIPI_INP(MIPI_DSI_BASE + 0xA8);
-		tmp |= (1<<28);
-		MIPI_OUTP(MIPI_DSI_BASE + 0xA8, tmp);
-		wmb();
-	}
 
 	if (mdp_rev >= MDP_REV_41)
 		mutex_lock(&mfd->dma->ov_mutex);

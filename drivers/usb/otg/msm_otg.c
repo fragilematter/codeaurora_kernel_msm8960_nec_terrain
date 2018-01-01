@@ -11,6 +11,14 @@
  *
  */
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2011 */
+/**************************************************/
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
@@ -40,9 +48,21 @@
 #include <linux/pm_qos_params.h>
 #include <linux/power_supply.h>
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+#include <linux/i2c/bd91401gw.h>
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 #include <mach/clk.h>
 #include <mach/msm_xo.h>
 #include <mach/msm_bus.h>
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+#include "linux/i2c/usb_switch_if_knl.h"
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 
 #define MSM_USB_BASE	(motg->regs)
 #define DRIVER_NAME	"msm_otg"
@@ -63,11 +83,28 @@
 #define USB_PHY_VDD_DIG_VOL_MIN	1045000 /* uV */
 #define USB_PHY_VDD_DIG_VOL_MAX	1320000 /* uV */
 
-static DECLARE_COMPLETION(pmic_vbus_init);
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+#define NO_CHARGE			0			/* Charging device is disconnected */
+#define PC_CHARGE			500			/* PC charging                     */
+#define AC_CHARGE			1500		/* AC charging                     */
+#define OTHER_DEVICE_CHARGE	1500		/* Other device charging           */
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+static struct msm_otg *the_msm_otg = NULL;
+#else
 static struct msm_otg *the_msm_otg;
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
+static DECLARE_COMPLETION(pmic_vbus_init);
 static bool debug_aca_enabled;
 static bool debug_bus_voting_enabled;
 
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+static int bat_judg_flg;
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 /* Prevent idle power collapse(pc) while operating in peripheral mode */
 static void otg_pm_qos_update_latency(struct msm_otg *dev, int vote)
 {
@@ -92,6 +129,13 @@ static struct regulator *hsusb_1p8;
 static struct regulator *hsusb_vddcx;
 static struct regulator *vbus_otg;
 static struct power_supply *psy;
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+int otg_workable = USB_VBUS_INIT;
+static int g_device_type = USB_SW_DEVICE_DISCONNECTED;		/* Connected device type */
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 
 static bool aca_id_turned_on;
 static inline bool aca_enabled(void)
@@ -208,6 +252,7 @@ static int msm_hsusb_config_vddcx(int high)
 	int min_vol;
 	int ret;
 
+	printk(KERN_INFO "LINE:%u %s high=%d \n",__LINE__,__func__,high);
 	if (high)
 		min_vol = USB_PHY_VDD_DIG_VOL_MIN;
 	else
@@ -864,6 +909,7 @@ psy_not_supported:
 	return -ENXIO;
 }
 
+#if !defined(CONFIG_FEATURE_NCMC_USB) || defined(CONFIG_FEATURE_NCMC_RUBY)
 static int msm_otg_notify_chg_type(struct msm_otg *motg)
 {
 	static int charger_type;
@@ -917,9 +963,107 @@ psy_not_supported:
 	dev_dbg(motg->otg.dev, "Power Supply doesn't support USB charger\n");
 	return -ENXIO;
 }
+#endif
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+static unsigned msm_otg_set_cur_power(usb_sw_device_state_enum device_state)
+{
+	unsigned current_power_val = NO_CHARGE;
+	
+	/* Set the power value */
+	switch(device_state)
+	{
+	case USB_SW_DEVICE_DISCONNECTED:				/* Device is disconnected */
+	case USB_SW_OTHER_DEVICE_CONNECTED:				/* Other device with no charging */
+		current_power_val = NO_CHARGE;				/* Set to 0mA */
+		break;
+	case USB_SW_SDP_CONNECTED:						/* Standard downstream port(PC) */
+		current_power_val = PC_CHARGE;				/* Set to 500mA */
+		break;
+	case USB_SW_DCP_CONNECTED:						/* Dedicated Charger Port(AC) */
+		current_power_val = AC_CHARGE;				/* Set to 1500mA */
+		break;
+	case USB_SW_OTHER_DCP_CONNECTED:				/* Other device charging */
+		current_power_val = OTHER_DEVICE_CHARGE;	/* Set to 1500mA */
+		break;
+	default:
+		/* Error device state */
+		printk(KERN_ERR "[USBSW]LINE:%u %s Error device state\n",__LINE__,__func__);
+	}
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s current_power_val=%umA\n",__LINE__,__func__,current_power_val);
+	return current_power_val;
+}
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 
 static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 {
+#if defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY)
+	
+	usb_sw_device_state_enum device_state = USB_SW_DEVICE_DISCONNECTED;
+	unsigned cur_power_val;
+	unsigned retval;
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s start\n",__LINE__,__func__);
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s g_device_type(%d)\n",__LINE__,__func__,g_device_type);
+	/* To get a device state */	
+	retval = usb_sw_get_device_state(&device_state);
+	if(retval == USB_SW_NG)
+	{
+		printk(KERN_ERR "[USBSW]LINE:%u %s Error to get device state retval=%d\n",__LINE__,__func__,retval);
+		return;
+	}
+
+	/* Set a current power value */
+	cur_power_val = msm_otg_set_cur_power(device_state);
+	
+	switch(device_state)
+	{
+	/* Stop Charging */
+	case USB_SW_DEVICE_DISCONNECTED:
+	case USB_SW_OTHER_DEVICE_CONNECTED:
+		if((g_device_type != USB_SW_DEVICE_DISCONNECTED) && (g_device_type != USB_SW_OTHER_DEVICE_CONNECTED))
+		{
+			printk(KERN_DEBUG "[USBSW]LINE:%u %s chg_usb_charger_connected(%d) call\n",__LINE__,__func__,device_state);
+			printk(KERN_DEBUG "[USBSW]LINE:%u %s pm8921_charger_vbus_draw(%umA) call\n",__LINE__,__func__,cur_power_val);
+			/* Send the current power value and the device state to PM driver */
+			chg_usb_charger_connected(device_state);
+			pm8921_charger_vbus_draw(cur_power_val);
+		}else{
+			/* A device is not connected */
+			printk(KERN_DEBUG "[USBSW]LINE:%u %s Not connected yet\n",__LINE__,__func__);
+		}
+		break;
+	/* Start Charging */
+	case USB_SW_SDP_CONNECTED:
+	case USB_SW_DCP_CONNECTED:
+	case USB_SW_OTHER_DCP_CONNECTED:
+		if (device_state == g_device_type)
+		{
+			/* The device state is the same as the last device state */
+			printk(KERN_DEBUG "[USBSW]LINE:%u %s Device state is the same(%d)\n",__LINE__,__func__,device_state);
+			printk(KERN_DEBUG "[USBSW]LINE:%u %s The last device state(%d)\n",__LINE__,__func__,g_device_type);
+			break;
+		}
+		printk(KERN_DEBUG "[USBSW]LINE:%u %s chg_usb_charger_connected(%d) call\n",__LINE__,__func__,device_state);
+		printk(KERN_DEBUG "[USBSW]LINE:%u %s pm8921_charger_vbus_draw(%umA) call\n",__LINE__,__func__,cur_power_val);
+		/* Send the current power value and the device state to PM driver */
+		chg_usb_charger_connected(device_state);
+		pm8921_charger_vbus_draw(cur_power_val);
+		break;
+	default:
+		/* Error device state */
+		printk(KERN_ERR "[USBSW]LINE:%u %s Error device state\n",__LINE__,__func__);
+		return;
+	}
+	/* Set the device state */
+	g_device_type = device_state;
+	/* Set the current power value */
+	motg->cur_power = cur_power_val;
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s motg->cur_power=%umA\n",__LINE__,__func__,motg->cur_power);
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s g_device_type(%d)\n",__LINE__,__func__,g_device_type);
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s end\n",__LINE__,__func__);
+#else /*CONFIG_FEATURE_NCMC_USB && !CONFIG_FEATURE_NCMC_RUBY */
 	if ((motg->chg_type == USB_ACA_DOCK_CHARGER ||
 		motg->chg_type == USB_ACA_A_CHARGER ||
 		motg->chg_type == USB_ACA_B_CHARGER ||
@@ -945,6 +1089,7 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 		pm8921_charger_vbus_draw(mA);
 
 	motg->cur_power = mA;
+#endif /*CONFIG_FEATURE_NCMC_USB && !CONFIG_FEATURE_NCMC_RUBY */
 }
 
 static int msm_otg_set_power(struct otg_transceiver *otg, unsigned mA)
@@ -1427,6 +1572,10 @@ static bool msm_chg_check_secondary_det(struct msm_otg *motg)
 	struct otg_transceiver *otg = &motg->otg;
 	u32 chg_det;
 	bool ret = false;
+#if defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY)
+    unsigned retval;
+    usb_sw_device_state_enum device_state;
+#endif /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 
 	switch (motg->pdata->phy_type) {
 	case CI_45NM_INTEGRATED_PHY:
@@ -1434,8 +1583,20 @@ static bool msm_chg_check_secondary_det(struct msm_otg *motg)
 		ret = chg_det & (1 << 4);
 		break;
 	case SNPS_28NM_INTEGRATED_PHY:
+#if defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY)
+        retval = usb_sw_get_device_state(&device_state); /* Ignore the return value */
+        if(device_state == USB_SW_DCP_CONNECTED ||
+            device_state == USB_SW_OTHER_DCP_CONNECTED) {
+            /* DCP */
+            ret = true;
+        } else {
+            /* CDP */
+            ret = false;
+        }
+#else /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 		chg_det = ulpi_read(otg, 0x87);
 		ret = chg_det & 1;
+#endif /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 		break;
 	default:
 		break;
@@ -1491,6 +1652,10 @@ static bool msm_chg_check_primary_det(struct msm_otg *motg)
 	struct otg_transceiver *otg = &motg->otg;
 	u32 chg_det;
 	bool ret = false;
+#if defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY)
+    unsigned retval;
+    usb_sw_device_state_enum device_state;
+#endif /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 
 	switch (motg->pdata->phy_type) {
 	case CI_45NM_INTEGRATED_PHY:
@@ -1498,8 +1663,19 @@ static bool msm_chg_check_primary_det(struct msm_otg *motg)
 		ret = chg_det & (1 << 4);
 		break;
 	case SNPS_28NM_INTEGRATED_PHY:
+#if defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY)
+        retval = usb_sw_get_device_state(&device_state); /* Ignore the return value */
+        if(device_state == USB_SW_SDP_CONNECTED) {
+            /* SDP */
+            ret = false;
+        } else {
+            /* DCP or CDP */
+            ret = true;
+        }
+#else /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 		chg_det = ulpi_read(otg, 0x87);
 		ret = chg_det & 1;
+#endif /* defined(CONFIG_FEATURE_NCMC_USB) && !defined(CONFIG_FEATURE_NCMC_RUBY) */
 		break;
 	default:
 		break;
@@ -1676,6 +1852,11 @@ static const char *chg_to_string(enum usb_chg_type chg_type)
 #define MSM_CHG_DCD_MAX_RETRIES		6 /* Tdcd_tmout = 6 * 100 msec */
 #define MSM_CHG_PRIMARY_DET_TIME	(50 * HZ/1000) /* TVDPSRC_ON */
 #define MSM_CHG_SECONDARY_DET_TIME	(50 * HZ/1000) /* TVDMSRC_ON */
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+#define MSM_BAT_JUDG_TIME			(10000 * HZ/1000) /* 10sec */
+#define MSM_BAT_JUDG_TIME2			(40000 * HZ/1000) /* 40sec */
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
+
 static void msm_chg_detect_work(struct work_struct *w)
 {
 	struct msm_otg *motg = container_of(w, struct msm_otg, chg_work.work);
@@ -1770,6 +1951,50 @@ static void msm_chg_detect_work(struct work_struct *w)
 	schedule_delayed_work(&motg->chg_work, delay);
 }
 
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+static void msm_bat_judg_timer(struct work_struct *w){
+	struct msm_otg *motg = the_msm_otg;
+	struct otg_transceiver *otg = &motg->otg;
+	dev_info(otg->dev, "msm_bat_judg_timer end\n");
+	if(otg->state == OTG_STATE_B_PERIPHERAL){
+		if ( bat_judg_flg == 1 ){
+			msm_otg_notify_charger( motg, 500 );
+			bat_judg_flg++;
+			dev_info(otg->dev, "msm_bat_judg_timer charger 1st set\n");
+		}
+		else{
+			msm_otg_notify_charger( motg, 1100 );
+			bat_judg_flg = 0;
+			dev_info(otg->dev, "msm_bat_judg_timer charger 2nd set\n");
+		}
+	}
+	else{
+		bat_judg_flg = 0;
+	}
+}
+
+void msm_otg_start_bat_timer(void)
+{
+	struct msm_otg *motg = the_msm_otg;
+	struct otg_transceiver *otg = &motg->otg;
+	bat_judg_flg = 1;
+	schedule_delayed_work(&motg->bat_timer, MSM_BAT_JUDG_TIME);
+	schedule_delayed_work(&motg->bat_timer2, MSM_BAT_JUDG_TIME2);
+	dev_info(otg->dev, "msm_otg_start_bat_timer \n");
+}
+
+void msm_otg_clr_bat_timer(void)
+{
+	struct msm_otg *motg = the_msm_otg;
+	struct otg_transceiver *otg = &motg->otg;
+	if(bat_judg_flg){
+		cancel_delayed_work_sync(&motg->bat_timer);
+		cancel_delayed_work_sync(&motg->bat_timer2);
+		dev_info(otg->dev, "msm_otg_clr_bat_timer \n");
+		bat_judg_flg = 0;
+	}
+}
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 /*
  * We support OTG, Peripheral only and Host only configurations. In case
  * of OTG, mode switch (host-->peripheral/peripheral-->host) can happen
@@ -1785,6 +2010,7 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 	switch (pdata->mode) {
 	case USB_OTG:
 		if (pdata->otg_control == OTG_USER_CONTROL) {
+#if !defined(CONFIG_FEATURE_NCMC_USB) || defined(CONFIG_FEATURE_NCMC_RUBY)
 			if (pdata->default_mode == USB_HOST) {
 				clear_bit(ID, &motg->inputs);
 			} else if (pdata->default_mode == USB_PERIPHERAL) {
@@ -1794,6 +2020,7 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 				set_bit(ID, &motg->inputs);
 				clear_bit(B_SESS_VLD, &motg->inputs);
 			}
+#endif /* !CONFIG_FEATURE_NCMC_USB || CONFIG_FEATURE_NCMC_RUBY */
 		} else if (pdata->otg_control == OTG_PHY_CONTROL) {
 			if (otgsc & OTGSC_ID)
 				set_bit(ID, &motg->inputs);
@@ -1928,6 +2155,9 @@ static void msm_otg_sm_work(struct work_struct *w)
 				case USB_SDP_CHARGER:
 					msm_otg_start_peripheral(otg, 1);
 					otg->state = OTG_STATE_B_PERIPHERAL;
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+					msm_otg_start_bat_timer();
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 					break;
 				default:
 					break;
@@ -1937,6 +2167,9 @@ static void msm_otg_sm_work(struct work_struct *w)
 				break;
 			}
 		} else {
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+			msm_otg_clr_bat_timer();
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 			cancel_delayed_work_sync(&motg->chg_work);
 			motg->chg_state = USB_CHG_STATE_UNDEFINED;
 			motg->chg_type = USB_INVALID_CHARGER;
@@ -2039,6 +2272,8 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 		}
 		schedule_work(&motg->sm_work);
 	} else if ((otgsc & OTGSC_BSVIS) && (otgsc & OTGSC_BSVIE)) {
+#if !defined(CONFIG_FEATURE_NCMC_USB) || defined(CONFIG_FEATURE_NCMC_RUBY)
+//To move the following processing in usbsw_set_otg_workable().
 		if (otgsc & OTGSC_BSV) {
 			dev_dbg(otg->dev, "BSV set\n");
 			set_bit(B_SESS_VLD, &motg->inputs);
@@ -2048,6 +2283,7 @@ static irqreturn_t msm_otg_irq(int irq, void *data)
 			msm_chg_check_aca_intr(motg);
 		}
 		schedule_work(&motg->sm_work);
+#endif /* !CONFIG_FEATURE_NCMC_USB || CONFIG_FEATURE_NCMC_RUBY */
 	}
 
 	writel(otgsc, USB_OTGSC);
@@ -2106,6 +2342,66 @@ static void msm_pmic_id_status_w(struct work_struct *w)
 }
 
 #define MSM_PMIC_ID_STATUS_DELAY	5 /* 5msec */
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+void usbsw_set_otg_workable(int online)
+{
+	struct msm_otg *dev = the_msm_otg;
+	struct otg_transceiver *otg;
+	
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s start\n",__LINE__,__func__);
+	printk(KERN_DEBUG "[USBSW][%s]: USB online=%d\n",__func__ ,online);
+
+    /* Check the pointer address */
+	if(dev == NULL)
+	{
+		printk(KERN_ERR "[USBSW][%s]: the_msm_otg = NULL \n",__func__);
+		return;
+	}
+
+	otg = &dev->otg;
+	if(otg == NULL)
+	{
+        printk(KERN_ERR "%s: ERROR otg is NULL. \n",__func__);
+		return;
+	}
+
+    /* Check the online state */
+	if(otg_workable == online)
+	{
+		printk(KERN_ERR "[USBSW][%s]: already this status.\n",__func__);
+		return;
+	}
+
+    /* Register setting */
+	if (online)
+	{
+		/* Set register setting to SESS valid */
+		set_bit(B_SESS_VLD, &dev->inputs);  /* B_SESS_VLD = 1 */
+		set_bit(ID, &dev->inputs);          /* ID         = 0 */
+
+	}else{
+		/* Set register setting to SESS invalid */
+		clear_bit(B_SESS_VLD, &dev->inputs);
+		set_bit(ID, &dev->inputs);
+		msm_chg_check_aca_intr(dev);
+	}
+
+	wake_lock(&dev->wlock);
+
+	/* To enable OTG main function(msm_otg_sm_work()) */
+	schedule_work(&dev->sm_work);
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s msm_otg_sm_work() call\n",__LINE__,__func__);
+
+    /* Set online setting to a latest state */
+	otg_workable = online;
+
+	printk(KERN_DEBUG "[USBSW]LINE:%u %s end \n",__LINE__,__func__);
+	return ;
+}
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 static irqreturn_t msm_pmic_id_irq(int irq, void *data)
 {
 	struct msm_otg *motg = data;
@@ -2575,6 +2871,11 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 	motg->pdata = pdata;
 	otg = &motg->otg;
 	otg->dev = &pdev->dev;
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+	motg->pdata->otg_control = OTG_USER_CONTROL;
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 	/*
 	 * ACA ID_GND threshold range is overlapped with OTG ID_FLOAT.  Hence
@@ -2703,6 +3004,10 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 	wake_lock_init(&motg->wlock, WAKE_LOCK_SUSPEND, "msm_otg");
 	INIT_WORK(&motg->sm_work, msm_otg_sm_work);
 	INIT_DELAYED_WORK(&motg->chg_work, msm_chg_detect_work);
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	INIT_DELAYED_WORK(&motg->bat_timer, msm_bat_judg_timer);
+	INIT_DELAYED_WORK(&motg->bat_timer2, msm_bat_judg_timer);
+#endif
 	INIT_DELAYED_WORK(&motg->pmic_id_status_work, msm_pmic_id_status_w);
 	setup_timer(&motg->id_timer, msm_otg_id_timer_func,
 				(unsigned long) motg);
@@ -2769,6 +3074,10 @@ static int __init msm_otg_probe(struct platform_device *pdev)
 
 		if (motg->pdata->otg_control == OTG_PHY_CONTROL)
 			motg->caps = ALLOW_PHY_RETENTION;
+
+		if (motg->pdata->otg_control == OTG_USER_CONTROL) 
+			motg->caps = ALLOW_PHY_POWER_COLLAPSE | 
+				ALLOW_PHY_RETENTION; 
 	}
 
 	wake_lock(&motg->wlock);
@@ -2836,6 +3145,9 @@ static int __devexit msm_otg_remove(struct platform_device *pdev)
 	if (motg->pdata->otg_control == OTG_PMIC_CONTROL)
 		pm8921_charger_unregister_vbus_sn(0);
 	msm_otg_debugfs_cleanup();
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+	msm_otg_clr_bat_timer();
+#endif /* CONFIG_FEATURE_NCMC_RUBY */
 	cancel_delayed_work_sync(&motg->chg_work);
 	cancel_delayed_work_sync(&motg->pmic_id_status_work);
 	cancel_work_sync(&motg->sm_work);

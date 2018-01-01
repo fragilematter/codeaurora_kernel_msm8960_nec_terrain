@@ -13,6 +13,10 @@
  * Qualcomm PM8XXX Pulse Width Modulation (PWM) driver
  *
  * The HW module is also called LPG (Light Pulse Generator).
+ *
+ * Modified by
+ * (C) NEC CASIO Mobile Communications, Ltd. 2011
+ *
  */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
@@ -1076,6 +1080,78 @@ int pm8xxx_pwm_lut_enable(struct pwm_device *pwm, int start)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pm8xxx_pwm_lut_enable);
+
+#if defined( CONFIG_INPUT_ANALOGDEVICE_ADUX1001_NCM )
+/**
+ * pm8xxx_pwm_haptics_config - set-up a PWM device config that supported haptics device.
+ * @pwm: the PWM device
+ * @pwm_value: amplitude of vibration. 
+ */
+int pm8xxx_pwm_haptics_config( struct pwm_device *pwm, int pwm_value, int period_us )
+{
+    struct pm8xxx_pwm_period *period;
+    int                      rc       =  0;
+
+#ifdef PM8XXX_LPG_DEBUG_LOG
+    printk( KERN_NOTICE "[pm8921_pwm]%s: Enter", __func__ );
+#endif /* PM8XXX_LPG_DEBUG_LOG */
+
+    if( pwm == NULL || IS_ERR(pwm) || pwm_value < 0 || pwm_value > 100 ) {
+        pr_err("Invalid pwm handle or parameters\n");
+        return -EINVAL;
+    }
+
+    period = &pwm->period;
+
+   if (pwm->chip == NULL) {
+        pr_err("No pwm_chip\n");
+        return -ENODEV;
+    }
+
+    mutex_lock(&pwm->chip->pwm_mutex);
+
+    if (!pwm->in_use) {
+        pr_err("pwm_id: %d: stale handle?\n", pwm->pwm_id);
+        rc = -EINVAL;
+        goto out_unlock;
+    }
+
+    if (pwm->pwm_period != period_us) {
+        period->pwm_size    = 6;
+        period->clk         = 2;
+        period->pre_div     = PM8XXX_PWM_PREDIVIDE_6;
+        period->pre_div_exp = 1;
+
+        pm8xxx_pwm_save_period(pwm);
+        pwm->pwm_period = period_us;
+
+        pwm->bypass_lut  = 1;
+    }
+
+    //Culc Duty Cycle
+    pwm->pwm_value = pwm_value;
+
+#ifdef PM8XXX_LPG_DEBUG_LOG
+    printk( KERN_NOTICE "[pm8921_pwm]%s: pwm_value = %d\n", __func__, period->pwm_value );
+#endif /* PM8XXX_LPG_DEBUG_LOG */
+
+    pm8xxx_pwm_save_pwm_value(pwm);
+    pm8xxx_pwm_save(&pwm->pwm_lpg_ctl[1],
+            PM8XXX_PWM_BYPASS_LUT, PM8XXX_PWM_BYPASS_LUT);
+
+    pm8xxx_pwm_bank_sel(pwm);
+    rc = pm8xxx_lpg_pwm_write(pwm, 1, 6);
+
+#ifdef PM8XXX_LPG_DEBUG_LOG
+    printk( KERN_NOTICE "[pm8921_pwm]%s: Exit", __func__ );
+#endif /* PM8XXX_LPG_DEBUG_LOG */
+
+out_unlock:
+    mutex_unlock(&pwm->chip->pwm_mutex);
+    return rc;
+}
+EXPORT_SYMBOL_GPL(pm8xxx_pwm_haptics_config);
+#endif /* CONFIG_INPUT_ANALOGDEVICE_ADUX1001_NCM */
 
 #if defined(CONFIG_DEBUG_FS)
 

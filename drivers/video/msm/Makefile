@@ -71,8 +71,9 @@ obj-$(CONFIG_FB_MSM_MIPI_DSI) += msm_mipi.o
 # MIPI manufacture
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TOSHIBA) += mipi_toshiba.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_NOVATEK) += mipi_novatek.o
-obj-$(CONFIG_FB_MSM_MIPI_DSI_RENESAS) += mipi_renesas.o
+#obj-$(CONFIG_FB_MSM_MIPI_DSI_RENESAS) += mipi_renesas.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_TRULY) += mipi_truly.o
+obj-$(CONFIG_FB_MSM_MIPI_DSI_NT35560) += mipi_nt35560.o
 obj-$(CONFIG_FB_MSM_MIPI_DSI_SIMULATOR) += mipi_simulator.o
 
 # MIPI Bridge
@@ -115,6 +116,8 @@ obj-y += mipi_novatek_video_qhd_pt.o mipi_novatek_cmd_qhd_pt.o
 obj-y += mipi_renesas_video_fwvga_pt.o mipi_renesas_cmd_fwvga_pt.o
 obj-y += mipi_chimei_wxga_pt.o
 obj-y += mipi_truly_video_wvga_pt.o
+#obj-y += mipi_nt35560_video_vga_pt.o
+obj-y += mipi_nt35560_cmd_vga_pt.o
 else
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WVGA_PT) += mipi_toshiba_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT) += mipi_toshiba_video_wsvga_pt.o
@@ -123,10 +126,29 @@ obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT) += mipi_novatek_video_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_CMD_QHD_PT) += mipi_novatek_cmd_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT) += mipi_renesas_video_fwvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_RENESAS_CMD_FWVGA_PT) += mipi_renesas_cmd_fwvga_pt.o
+obj-$(CONFIG_FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT) += mipi_renesas_video_fwvga_pt.o
+# M7-S-dhkwon-2011.12.08
+obj-$(CONFIG_FB_MSM_MIPI_LG4573B_VIDEO_WVGA_PT) += mipi_lg4573b_video_wvga_pt.o
+#obj-$(CONFIG_FB_MSM_MIPI_NT35560_VIDEO_VGA_PT) += mipi_nt35560_video_vga_pt.o
+obj-$(CONFIG_FB_MSM_MIPI_NT35560_CMD_VGA_PT) += mipi_nt35560_cmd_vga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TRULY_VIDEO_WVGA_PT) += mipi_truly_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_SIMULATOR_VIDEO) += mipi_simulator_video.o
 obj-$(CONFIG_FB_MSM_MIPI_CHIMEI_WXGA) += mipi_chimei_wxga_pt.o
 endif
+
+# ADD-S S_DRV_LCD
+mipi_dsi_ncmc1-objs := mipi_renesas_hd.o mipi_toshiba_video_hd_pt.o
+obj-y += mipi_dsi_ncmc1.o
+
+mipi_dsi_ncmc2-objs := mipi_renesas_d121m.o mipi_toshiba_video_d121m_pt.o
+obj-y += mipi_dsi_ncmc2.o
+
+mipi_dsi_ncmc3-objs := mipi_renesas_d121f.o mipi_toshiba_video_d121f_pt.o
+obj-y += mipi_dsi_ncmc3.o
+
+mipi_dsi_ncmc4-objs := mipi_renesas_g121s.o mipi_toshiba_video_g121s_pt.o
+obj-y += mipi_dsi_ncmc4.o
+# ADD-E S_DRV_LCD
 
 obj-$(CONFIG_FB_MSM_LCDC_PANEL) += lcdc_panel.o
 obj-$(CONFIG_FB_MSM_LCDC_PRISM_WVGA) += lcdc_prism.o

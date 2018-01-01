@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -50,6 +54,8 @@ extern u32 msm_fb_debug_enabled;
 extern struct workqueue_struct *mdp_dma_wq;
 
 int vsync_start_y_adjust = 4;
+
+static boolean mdp_mddi_dma_s_flg = FALSE;
 
 static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 {
@@ -511,7 +517,13 @@ void mdp_lcd_update_workqueue_handler(struct work_struct *work)
 
 	mfd = container_of(work, struct msm_fb_data_type, dma_update_worker);
 	if (mfd)
+	{
+		if(mdp_mddi_dma_s_flg == TRUE)
+		{
+			return;
+		}
 		mfd->dma_fnc(mfd);
+	}
 }
 
 void mdp_set_dma_pan_info(struct fb_info *info, struct mdp_dirty_region *dirty,
@@ -573,7 +585,13 @@ void mdp_dma_pan_update(struct fb_info *info)
 		mfd->pan_waiting = TRUE;
 		wait_for_completion_killable(&mfd->pan_comp);
 	} else
+	{
+		if(mdp_mddi_dma_s_flg == TRUE)
+		{
+			return;
+		}
 		mfd->dma_fnc(mfd);
+	}
 }
 
 void mdp_refresh_screen(unsigned long data)
@@ -603,5 +621,15 @@ void mdp_refresh_screen(unsigned long data)
 	} else {
 		if (!mfd->hw_refresh)
 			complete(&mfd->refresher_comp);
+	}
+}
+
+void mdp_mddi_dma_s_stop(int dma_flg)
+{
+	if(dma_flg==1)
+	{
+		mdp_mddi_dma_s_flg = TRUE;
+	} else {
+		mdp_mddi_dma_s_flg = FALSE;
 	}
 }

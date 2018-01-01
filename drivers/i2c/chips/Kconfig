@@ -1,0 +1,97 @@
+# CONFIG_NCMC_USB
+#
+#
+# Miscellaneous I2C chip drivers configuration
+#
+# *** DEPRECATED! Do not add new entries! See Makefile ***
+#
+
+menu "Miscellaneous I2C Chip support"
+
+config BD91401GW
+    tristate "BD91401GW USB Switch Driver"
+    depends on I2C
+    default y
+    help
+      BD91401GW USB Switch Driver
+
+#
+config SENSORS_AKM8977
+	tristate "AKM8977 Compass Driver"
+	depends on I2C
+	default y
+	help
+	  If you say yes here you get support for Asahi Kasei's 
+	  orientation sensor AK8977.
+
+config SENSORS_COMMON
+	tristate "Common Sensors Driver"
+	depends on I2C
+	default y
+	help
+	 Common Sensors Driver.
+
+config SENSORS_L3G4200D
+	tristate "L3G4200D Driver"
+	depends on I2C
+	default y
+	help
+	  If you say yes here you get support for Asahi Kasei's 
+	  orientation sensor L3G4200D.
+
+config SENSORS_APDS990X
+	tristate "APDS990X Digital Proximity and Ambient Light Sensor Driver"
+	depends on I2C
+	default y
+	help
+	  If you say Y here, support for the APDS990X Digital Proximity and Ambient
+	  Light Sensor Driver will be compiled into the kernel and accessible via a
+	  device node. You can also say M here and the driver will be built as a
+	  module named apds990x.ko.
+#
+
+config INPUT_YAS_ACCELEROMETER
+         tristate "YAS Acceleration Sensor"
+         depends on I2C
+
+config INPUT_YAS_ACCELEROMETER_POSITION
+         int "YAS Acceleration Sensor Mounting Position on Board"
+         depends on INPUT_YAS_ACCELEROMETER
+         default "5"
+         help
+           Chip mounting position (pin 1).
+              0: top, upper-left
+              1: top, upper-right
+              2: top, lower-right
+              3: top, lower-left
+              4: bottom, upper-left
+              5: bottom, upper-right
+              6: bottom, lower-right
+              7: bottom, lower-left
+
+config INPUT_YAS_MAGNETOMETER
+         tristate "YAS Geomagnetic Sensor"
+         depends on I2C
+
+config INPUT_YAS_MAGNETOMETER_POSITION
+         int "YAS Geomagnetic Sensor Mounting Position on Board"
+         depends on INPUT_YAS_MAGNETOMETER
+         default "4"
+         help
+           Chip mounting position (pin 1).
+              0: top, upper-left
+              1: top, upper-right
+              2: top, lower-right
+              3: top, lower-left
+              4: bottom, upper-left
+              5: bottom, upper-right
+              6: bottom, lower-right
+              7: bottom, lower-left
+
+config INPUT_YAS_ORIENTATION
+	tristate "YAS Orientation Sensor"
+	depends on I2C
+
+endmenu
+#
+# CONFIG_NCMC_USB

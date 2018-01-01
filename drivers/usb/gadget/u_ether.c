@@ -20,6 +20,14 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2012 */
+/**************************************************/
+
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
 /* #define VERBOSE_DEBUG */
 
 #include <linux/kernel.h>
@@ -31,6 +39,10 @@
 
 #include "u_ether.h"
 
+#undef USB_ANDROID_NCM
+#ifdef CONFIG_FEATURE_NCMC_USB
+#define USB_ANDROID_NCM
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 /*
  * This component encapsulates the Ethernet link glue needed to provide
@@ -55,6 +67,9 @@
 
 #define UETH__VERSION	"29-May-2008"
 
+#ifdef USB_ANDROID_NCM
+
+#else /* USB_ANDROID_NCM */
 struct eth_dev {
 	/* lock is held while accessing port_usb
 	 * or updating its backlink port_usb->ioport
@@ -90,6 +105,7 @@ struct eth_dev {
 	bool			zlp;
 	u8			host_mac[ETH_ALEN];
 };
+#endif /* USB_ANDROID_NCM */
 
 /*-------------------------------------------------------------------------*/
 
@@ -100,7 +116,11 @@ struct eth_dev {
 
 #ifdef CONFIG_USB_GADGET_DUALSPEED
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+unsigned qmult = 10;
+#else /* CONFIG_FEATURE_NCMC_USB */
 static unsigned qmult = 10;
+#endif /* CONFIG_FEATURE_NCMC_USB */
 module_param(qmult, uint, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(qmult, "queue length multiplier at high speed");
 
@@ -491,7 +511,10 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 			dev->net->stats.tx_bytes += req->length;
 	}
 	dev->net->stats.tx_packets++;
-
+#ifdef USB_ANDROID_NCM
+	/* for gncm: track the pending writes counter */
+	atomic_dec(&dev->port_usb->pending_writes);
+#endif /* USB_ANDROID_NCM */
 	spin_lock(&dev->req_lock);
 	list_add_tail(&req->list, &dev->tx_reqs);
 
@@ -582,11 +605,20 @@ static void alloc_tx_buffer(struct eth_dev *dev)
 	}
 }
 
+#ifndef USE_ETHER_XMIT_FOR_NCM
 static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 					struct net_device *net)
+#else
+netdev_tx_t eth_start_xmit(struct sk_buff *skb,
+					struct net_device *net)
+#endif
 {
 	struct eth_dev		*dev = netdev_priv(net);
+#ifdef USB_ANDROID_NCM
+	int			length = 0;
+#else /* USB_ANDROID_NCM */
 	int			length = skb->len;
+#endif /* USB_ANDROID_NCM */
 	int			retval;
 	struct usb_request	*req = NULL;
 	unsigned long		flags;
@@ -614,9 +646,22 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 
 	/* apply outgoing CDC or RNDIS filters */
 	if (!is_promisc(cdc_filter)) {
+#ifdef USB_ANDROID_NCM
+		u8		*dest = NULL;
+#else /* USB_ANDROID_NCM */
 		u8		*dest = skb->data;
+#endif /* USB_ANDROID_NCM */
 
+#ifdef USB_ANDROID_NCM
+		if(skb)
+			dest = skb->data;
+#endif /* USB_ANDROID_NCM */
+
+#ifdef USB_ANDROID_NCM
+		if (dest && is_multicast_ether_addr(dest)) {
+#else /* USB_ANDROID_NCM */
 		if (is_multicast_ether_addr(dest)) {
+#endif /* USB_ANDROID_NCM */
 			u16	type;
 
 			/* ignores USB_CDC_PACKET_TYPE_MULTICAST and host
@@ -627,7 +672,12 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 			else
 				type = USB_CDC_PACKET_TYPE_ALL_MULTICAST;
 			if (!(cdc_filter & type)) {
+#ifdef USB_ANDROID_NCM
+				if(skb)
+					dev_kfree_skb_any(skb);
+#else /* USB_ANDROID_NCM */
 				dev_kfree_skb_any(skb);
+#endif /* USB_ANDROID_NCM */
 				return NETDEV_TX_OK;
 			}
 		}
@@ -740,6 +790,10 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 		DBG(dev, "tx queue err %d\n", retval);
 		break;
 	case 0:
+#ifdef USB_ANDROID_NCM
+		/* for gncm: track the pending writes counter */
+		atomic_inc(&dev->port_usb->pending_writes);
+#endif /* USB_ANDROID_NCM */
 		net->trans_start = jiffies;
 	}
 
@@ -1020,7 +1074,10 @@ struct net_device *gether_connect(struct gether *link)
 
 	if (!dev)
 		return ERR_PTR(-EINVAL);
-
+	
+#ifdef USB_ANDROID_NCM
+	link->net = dev->net;
+#endif /* USB_ANDROID_NCM */
 	link->in_ep->driver_data = dev;
 	result = usb_ep_enable(link->in_ep, link->in);
 	if (result != 0) {

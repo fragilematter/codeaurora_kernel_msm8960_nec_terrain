@@ -32,6 +32,10 @@
  * rely on some SHA1 checksum of the regdomain for example.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -1630,6 +1634,33 @@ int regulatory_hint(struct wiphy *wiphy, const char *alpha2)
 	return 0;
 }
 EXPORT_SYMBOL(regulatory_hint);
+
+int regulatory_hint_fcc(struct wiphy *wiphy, const char *alpha2)
+{
+	struct regulatory_request *request;
+
+	BUG_ON(!alpha2);
+	BUG_ON(!wiphy);
+
+	request = kzalloc(sizeof(struct regulatory_request), GFP_KERNEL);
+	if (!request)
+		return -ENOMEM;
+
+	request->wiphy_idx = get_wiphy_idx(wiphy);
+
+	/* Must have registered wiphy first */
+	BUG_ON(!wiphy_idx_valid(request->wiphy_idx));
+
+	request->alpha2[0] = alpha2[0];
+	request->alpha2[1] = alpha2[1];
+	request->initiator = NL80211_REGDOM_SET_BY_DRIVER;
+
+	nl80211_send_reg_change_event(request);
+	kfree(request);
+
+	return 0;
+}
+EXPORT_SYMBOL(regulatory_hint_fcc);
 
 /*
  * We hold wdev_lock() here so we cannot hold cfg80211_mutex() and

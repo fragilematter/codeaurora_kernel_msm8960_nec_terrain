@@ -4,6 +4,7 @@
  *  Copyright (C) 2007 Google Inc,
  *  Copyright (C) 2003 Deep Blue Solutions, Ltd, All Rights Reserved.
  *  Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
+ *  Copyright (C) 2011-2012 NEC CASIO Mobile Communications, Ltd.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -14,6 +15,10 @@
  * Author: San Mehat (san@android.com)
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -60,7 +65,61 @@
 #include "msm_sdcc.h"
 #include "msm_sdcc_dml.h"
 
+#define MMCIRESP0_ERR_MASK 0xFDFFA080 /* 1111 1101 1111 1111 1010 0000 1000 0000 */
+
 #define DRIVER_NAME "msm-sdcc"
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+
+#include <linux/miscdevice.h>
+#include "../card/block.h"
+#include "../core/core.h"
+#include "../core/sd.h"
+
+/* Debug options */
+/* #define SD_CARD_CMD_OPCODE_DUMP */
+/* #define SD_CARD_FORCE_ERROR_ENABLE */
+/* #define SD_CARD_PM_DUMP */
+
+#ifdef SD_CARD_CMD_OPCODE_DUMP
+static bool msmsdcc_sd_cmd_dump = 0;
+#endif /* SD_CARD_CMD_OPCODE_DUMP */
+
+#ifdef SD_CARD_PM_DUMP
+static bool msmsdcc_sd_pm_dump = 0;
+#endif /* SD_CARD_PM_DUMP */
+
+/* SDC3: External card slot */
+#define SD_CARD(host)	((host)->pdev_id == 3)
+
+/* Alarm Watch */
+#define SD_CARD_EVENT_ID		(0x4E)
+
+#define SD_CARD_ARM_HW_TIMEOUT	(0xE0)
+#define SD_CARD_ARM_CMD_ERROR	(0xE1)
+#define SD_CARD_ARM_DATA_ERROR	(0xE2)
+
+#define SD_CARD_ARM_OPCODE(cmd, acmd)	\
+	(acmd ? (0x40+((cmd)&0x3F)) : ((cmd)&0x3F))
+
+#define SD_CARD_ARM_LOG(info, err, eject, opcode, arg)	\
+	pr_info("[T][ARM]Event:0x%02X Info:0x%02X%02X%02X%02X%08X\n", \
+			SD_CARD_EVENT_ID, info, (-1) * err, eject, opcode, arg)
+
+static int msmsdcc_runtime_resume(struct device *dev);
+
+static struct msmsdcc_host *msmsdcc_host_addr;
+
+static inline void msmsdcc_get_host(struct msmsdcc_host **host)
+{
+	*host = msmsdcc_host_addr;
+}
+
+static inline void msmsdcc_set_host(struct msmsdcc_host *host)
+{
+	msmsdcc_host_addr = host;
+}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 #define DBG(host, fmt, args...)	\
 	pr_debug("%s: %s: " fmt "\n", mmc_hostname(host->mmc), __func__ , args)
@@ -332,6 +391,20 @@ static void msmsdcc_reset_and_restore(struct msmsdcc_host *host)
 		host->dummy_52_needed = 0;
 }
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+static inline void
+msmsdcc_set_and_clear_acmd(struct msmsdcc_host *host, struct mmc_request *mrq)
+{
+	if (SD_CARD(host)) {
+		if (mrq->cmd->opcode == MMC_APP_CMD && !mrq->cmd->error) {
+			host->acmd = 1;
+		} else {
+			host->acmd = 0;
+		}
+	}
+}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 static int
 msmsdcc_request_end(struct msmsdcc_host *host, struct mmc_request *mrq)
 {
@@ -348,6 +421,10 @@ msmsdcc_request_end(struct msmsdcc_host *host, struct mmc_request *mrq)
 
 	/* Clear current request information as current request has ended */
 	memset(&host->curr, 0, sizeof(struct msmsdcc_curr_req));
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	msmsdcc_set_and_clear_acmd(host, mrq);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	/*
 	 * Need to drop the host lock here; mmc_request_done may call
@@ -413,6 +490,14 @@ static inline void msmsdcc_delay(struct msmsdcc_host *host)
 static inline void
 msmsdcc_start_command_exec(struct msmsdcc_host *host, u32 arg, u32 c)
 {
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_CMD_OPCODE_DUMP
+	if (SD_CARD(host) && msmsdcc_sd_cmd_dump) {
+		pr_info("%s: ### %s%d, arg: 0x%08X\n", mmc_hostname(host->mmc),
+				host->acmd ? "ACMD" : "CMD", (c & 0x003F), arg);
+	}
+#endif /* SD_CARD_CMD_OPCODE_DUMP */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	writel_relaxed(arg, host->base + MMCIARGUMENT);
 	writel_relaxed(c, host->base + MMCICOMMAND);
 	/*
@@ -520,6 +605,9 @@ msmsdcc_dma_complete_tlet(unsigned long data)
 			 * request has ended
 			 */
 			memset(&host->curr, 0, sizeof(struct msmsdcc_curr_req));
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+			msmsdcc_set_and_clear_acmd(host, mrq);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 			spin_unlock_irqrestore(&host->lock, flags);
 
 			mmc_request_done(host->mmc, mrq);
@@ -680,6 +768,9 @@ static void msmsdcc_sps_complete_tlet(unsigned long data)
 			 * request has ended
 			 */
 			memset(&host->curr, 0, sizeof(struct msmsdcc_curr_req));
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+			msmsdcc_set_and_clear_acmd(host, mrq);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 			spin_unlock_irqrestore(&host->lock, flags);
 
 			mmc_request_done(host->mmc, mrq);
@@ -1005,6 +1096,14 @@ msmsdcc_start_command_deferred(struct msmsdcc_host *host,
 	DBG(host, "op %02x arg %08x flags %08x\n",
 	    cmd->opcode, cmd->arg, cmd->flags);
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		if (cmd->opcode == MMC_STOP_TRANSMISSION) {
+			mdelay(3);
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	*c |= (cmd->opcode | MCI_CPSM_ENABLE);
 
 	if (cmd->flags & MMC_RSP_PRESENT) {
@@ -1227,6 +1326,14 @@ msmsdcc_data_err(struct msmsdcc_host *host, struct mmc_data *data,
 		      mmc_hostname(host->mmc), status);
 		data->error = -EIO;
 	}
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host) && data->error) {
+		SD_CARD_ARM_LOG(SD_CARD_ARM_DATA_ERROR, data->error, host->eject,
+				SD_CARD_ARM_OPCODE(data->mrq->cmd->opcode, host->acmd),
+				data->mrq->cmd->arg);
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	/* Dummy CMD52 is not needed when CMD53 has errors */
 	if (host->dummy_52_needed)
@@ -1557,6 +1664,24 @@ static void msmsdcc_do_cmdirq(struct msmsdcc_host *host, uint32_t status)
 		cmd->resp[3] = readl_relaxed(host->base + MMCIRESPONSE3);
 	}
 
+    if(0 == memcmp((const void*)(mmc_hostname(host->mmc)), (const void*)("mmc0"), 4))
+    {
+        if ((cmd->resp[0] & MMCIRESP0_ERR_MASK) != 0){
+
+            if ((cmd->opcode != MMC_GO_IDLE_STATE) &&     /*  CMD0  */
+                (cmd->opcode != MMC_SEND_OP_COND) &&      /*  CMD1  */
+                (cmd->opcode != MMC_ALL_SEND_CID) &&      /*  CMD2  */
+                (cmd->opcode != MMC_SET_DSR) &&           /*  CMD4  */
+                (cmd->opcode != MMC_SEND_CSD) &&          /*  CMD9  */
+                (cmd->opcode != MMC_SEND_CID) &&          /*  CMD10 */
+                (cmd->opcode != MMC_GO_INACTIVE_STATE) && /*  CMD15 */
+                (cmd->opcode != MMC_FAST_IO) &&           /*  CMD39 */
+                (cmd->opcode != MMC_GO_IRQ_STATE)){       /*  CMD40 */
+                    printk(KERN_ERR "%s :[T][ARM]Event:0x21 Info:0x%02X%08X", mmc_hostname(host->mmc), cmd->opcode, cmd->resp[0]);
+            }
+        }
+    }
+
 	if (status & (MCI_CMDTIMEOUT | MCI_AUTOCMD19TIMEOUT)) {
 		pr_debug("%s: CMD%d: Command timeout\n",
 				mmc_hostname(host->mmc), cmd->opcode);
@@ -1567,6 +1692,12 @@ static void msmsdcc_do_cmdirq(struct msmsdcc_host *host, uint32_t status)
 			mmc_hostname(host->mmc), cmd->opcode);
 		msmsdcc_dump_sdcc_state(host);
 		cmd->error = -EILSEQ;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (SD_CARD(host)) {
+			SD_CARD_ARM_LOG(SD_CARD_ARM_CMD_ERROR, cmd->error, host->eject,
+					SD_CARD_ARM_OPCODE(cmd->opcode, host->acmd), cmd->arg);
+		}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	}
 
 	if (!cmd->error) {
@@ -1871,6 +2002,25 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	spin_lock_irqsave(&host->lock, flags);
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		if (host->curr.mrq) {
+			WARN(host->curr.mrq, "Request in progress\n");
+			mrq->cmd->error = -EBUSY;
+			msmsdcc_set_and_clear_acmd(host, mrq);
+			spin_unlock_irqrestore(&host->lock, flags);
+			mmc_request_done(mmc, mrq);
+			return;
+		}
+		if (!host->pwr && host->pending_resume) {
+			host->pending_resume = 0;
+			spin_unlock_irqrestore(&host->lock, flags);
+			msmsdcc_runtime_resume(mmc_dev(mmc));
+			spin_lock_irqsave(&host->lock, flags);
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	if (host->eject) {
 		if (mrq->data && !(mrq->data->flags & MMC_DATA_READ)) {
 			mrq->cmd->error = 0;
@@ -1879,10 +2029,26 @@ msmsdcc_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		} else
 			mrq->cmd->error = -ENOMEDIUM;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		msmsdcc_set_and_clear_acmd(host, mrq);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 		spin_unlock_irqrestore(&host->lock, flags);
 		mmc_request_done(mmc, mrq);
 		return;
 	}
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		if (!host->pwr || !atomic_read(&host->clks_on)) {
+			mrq->cmd->error = -EFAULT;
+			msmsdcc_set_and_clear_acmd(host, mrq);
+			spin_unlock_irqrestore(&host->lock, flags);
+			mmc_request_done(mmc, mrq);
+			return;
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 
 	/*
 	 * Don't start the request if SDCC is not in proper state to handle it
@@ -2451,6 +2617,14 @@ static u32 msmsdcc_setup_pwr(struct msmsdcc_host *host, struct mmc_ios *ios)
 	u32 pwr = 0;
 	int ret = 0;
 	struct mmc_host *mmc = host->mmc;
+	
+    switch (ios->power_mode) {
+	case MMC_POWER_UP:
+		msmsdcc_setup_pins(host, true);
+		msmsdcc_set_vdd_io_vol(host, VDD_IO_HIGH, 0);
+		msmsdcc_cfg_mpm_sdiowakeup(host, SDC_DAT1_ENABLE);
+		break;
+	}
 
 	if (host->plat->translate_vdd && !host->sdio_gpio_lpm)
 		ret = host->plat->translate_vdd(mmc_dev(mmc), ios->vdd);
@@ -2460,6 +2634,14 @@ static u32 msmsdcc_setup_pwr(struct msmsdcc_host *host, struct mmc_ios *ios)
 	if (ret) {
 		pr_err("%s: Failed to setup voltage regulators\n",
 				mmc_hostname(host->mmc));
+
+		switch (ios->power_mode) {
+		case MMC_POWER_UP:
+			msmsdcc_cfg_mpm_sdiowakeup(host, SDC_DAT1_DISABLE);
+			msmsdcc_set_vdd_io_vol(host, VDD_IO_LOW, 0);
+			msmsdcc_setup_pins(host, false);
+			break;
+		}
 		goto out;
 	}
 
@@ -2478,10 +2660,6 @@ static u32 msmsdcc_setup_pwr(struct msmsdcc_host *host, struct mmc_ios *ios)
 	case MMC_POWER_UP:
 		/* writing PWR_UP bit is redundant */
 		pwr = MCI_PWR_UP;
-		msmsdcc_cfg_mpm_sdiowakeup(host, SDC_DAT1_ENABLE);
-
-		msmsdcc_set_vdd_io_vol(host, VDD_IO_HIGH, 0);
-		msmsdcc_setup_pins(host, true);
 		break;
 	case MMC_POWER_ON:
 		pwr = MCI_PWR_ON;
@@ -2782,6 +2960,25 @@ msmsdcc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	unsigned long flags;
 	unsigned int clock;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	int sd_error = 0;
+	if (SD_CARD(host)) {
+		if (ios->power_mode != MMC_POWER_OFF) {
+			mmc_err_info_get(&sd_error);
+			if (sd_error) {
+				pr_info("%s: Power on skipped for error card!!",
+						mmc_hostname(mmc));
+				return;
+			}
+			if (host->eject) {
+				pr_debug("%s: Power on skipped for no card.",
+						mmc_hostname(mmc));
+				return;
+			}
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	DBG(host, "ios->clock = %u\n", ios->clock);
 
 	/*
@@ -2941,7 +3138,11 @@ int msmsdcc_set_pwrsave(struct mmc_host *mmc, int pwrsave)
 
 static int msmsdcc_get_ro(struct mmc_host *mmc)
 {
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	return 0;  /* 0 for a read/write card */
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	int status = -ENOSYS;
+
 	struct msmsdcc_host *host = mmc_priv(mmc);
 
 	if (host->plat->wpswitch) {
@@ -2975,6 +3176,7 @@ static int msmsdcc_get_ro(struct mmc_host *mmc)
 	pr_debug("%s: Card read-only status %d\n", __func__, status);
 
 	return status;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 }
 
 static void msmsdcc_enable_sdio_irq(struct mmc_host *mmc, int enable)
@@ -3742,6 +3944,9 @@ msmsdcc_check_status(unsigned long data)
 					" is ACTIVE_HIGH\n",
 					mmc_hostname(host->mmc),
 					host->oldstat, status);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+			mmc_err_info_clear();
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 			mmc_detect_change(host->mmc, 0);
 		}
 		host->oldstat = status;
@@ -4278,6 +4483,198 @@ store_sdcc_to_mem_max_bus_bw(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_CMD_OPCODE_DUMP
+static ssize_t
+msmsdcc_show_sd_cmd_dump(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", msmsdcc_sd_cmd_dump);
+}
+
+static ssize_t
+msmsdcc_set_sd_cmd_dump(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	unsigned int value = 0;
+
+	if (buf[0] != '0') {
+		value = 1;
+	}
+
+	if (!SD_CARD(host)) {
+		pr_info("%s: No SD card!!", mmc_hostname(mmc));
+		return 0;
+	}
+
+	mmc_claim_host(mmc);
+
+	if (value) { /* set cmd dump */
+		msmsdcc_sd_cmd_dump = 1;
+	} else { /* clear cmd dump */
+		msmsdcc_sd_cmd_dump = 0;
+	}
+
+	mmc_release_host(mmc);
+
+	pr_info("%s: SET: sd_cmd_dump = %d",
+			mmc_hostname(mmc), msmsdcc_sd_cmd_dump);
+	return count;
+}
+
+static DEVICE_ATTR(sd_cmd_dump, S_IRUGO | S_IWUSR,
+		msmsdcc_show_sd_cmd_dump, msmsdcc_set_sd_cmd_dump);
+#endif /* SD_CARD_CMD_OPCODE_DUMP */
+
+#ifdef SD_CARD_FORCE_ERROR_ENABLE
+static ssize_t
+msmsdcc_show_sd_error(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int sd_error = 0;
+
+	if (SD_CARD(host)) {
+		mmc_err_info_get(&sd_error);
+	}
+	return snprintf(buf, PAGE_SIZE, "%u\n", sd_error);
+}
+
+static ssize_t
+msmsdcc_set_sd_error(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int sd_error = 0;
+	unsigned int value = 0;
+
+	if (buf[0] != '0') {
+		value = 1;
+	}
+
+	if (!SD_CARD(host)) {
+		pr_info("%s: No SD card!!", mmc_hostname(mmc));
+		return 0;
+	}
+
+	mmc_claim_host(mmc);
+	mmc_err_info_get(&sd_error);
+
+	if (value) { /* set error */
+		if (!sd_error && !host->eject) {
+			mmc_err_info_set();
+			mmc_power_off(host->mmc);
+			mmc_err_info_get(&sd_error);
+		}
+	} else { /* clear error */
+		if (sd_error) {
+			mmc_err_info_clear();
+			mmc_detect_change(host->mmc, 0);
+			mmc_err_info_get(&sd_error);
+		}
+	}
+	mmc_release_host(mmc);
+
+	pr_info("%s: SET: sd_error = %d", mmc_hostname(mmc), sd_error);
+	return count;
+}
+
+static DEVICE_ATTR(sd_error, S_IRUGO | S_IWUSR,
+		msmsdcc_show_sd_error, msmsdcc_set_sd_error);
+#endif /* SD_CARD_FORCE_ERROR_ENABLE */
+
+#ifdef SD_CARD_PM_DUMP
+static ssize_t
+msmsdcc_show_sd_pm_dump(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", msmsdcc_sd_pm_dump);
+}
+
+static ssize_t
+msmsdcc_set_sd_pm_dump(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	unsigned int value = 0;
+
+	if (buf[0] != '0') {
+		value = 1;
+	}
+
+	if (!SD_CARD(host)) {
+		pr_info("%s: No SD card!!", mmc_hostname(mmc));
+		return 0;
+	}
+
+	mmc_claim_host(mmc);
+
+	if (value) { /* set cmd dump */
+		msmsdcc_sd_pm_dump = 1;
+	} else { /* clear cmd dump */
+		msmsdcc_sd_pm_dump = 0;
+	}
+
+	mmc_release_host(mmc);
+
+	pr_info("%s: SET: sd_pm_dump = %d",
+			mmc_hostname(mmc), msmsdcc_sd_pm_dump);
+	return count;
+}
+
+static DEVICE_ATTR(sd_pm_dump, S_IRUGO | S_IWUSR,
+		msmsdcc_show_sd_pm_dump, msmsdcc_set_sd_pm_dump);
+#endif /* SD_CARD_PM_DUMP */
+
+static ssize_t
+msmsdcc_show_sd_card_status(struct device *dev, 
+		struct device_attribute *attr, char *buf)
+{
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msmsdcc_host *host = mmc_priv(mmc);
+	int sd_error = 0;
+	char *type = "Normal";
+
+	mmc_claim_host(mmc);
+	if (host->eject) {
+		type = "Absent";
+	} else {
+		mmc_err_info_get(&sd_error);
+		if (sd_error) {
+			type = "Error";
+		}
+	}
+	mmc_release_host(mmc);
+
+	return snprintf(buf, PAGE_SIZE, "%s\n", type);
+}
+
+static DEVICE_ATTR(sd_card_status, S_IRUSR,
+		msmsdcc_show_sd_card_status, NULL);
+
+static struct attribute *sd_dev_attrs[] = {
+#ifdef SD_CARD_CMD_OPCODE_DUMP
+	&dev_attr_sd_cmd_dump.attr,
+#endif /* SD_CARD_CMD_OPCODE_DUMP */
+#ifdef SD_CARD_FORCE_ERROR_ENABLE
+	&dev_attr_sd_error.attr,
+#endif /* SD_CARD_FORCE_ERROR_ENABLE */
+#ifdef SD_CARD_PM_DUMP
+	&dev_attr_sd_pm_dump.attr,
+#endif /* SD_CARD_PM_DUMP */
+	&dev_attr_sd_card_status.attr,
+	NULL,
+};
+static struct attribute_group sd_dev_attr_grp = {
+	.attrs = sd_dev_attrs,
+};
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 static ssize_t
 show_idle_timeout(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -4306,6 +4703,7 @@ store_idle_timeout(struct device *dev, struct device_attribute *attr,
 	}
 	return count;
 }
+
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void msmsdcc_early_suspend(struct early_suspend *h)
@@ -4423,6 +4821,16 @@ static void msmsdcc_req_tout_timer_hdlr(unsigned long data)
 		if (!mrq->cmd->error)
 			mrq->cmd->error = -ETIMEDOUT;
 		host->dummy_52_needed = 0;
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (SD_CARD(host)) {
+			SD_CARD_ARM_LOG(SD_CARD_ARM_HW_TIMEOUT,
+					mrq->cmd->error, host->eject,
+					SD_CARD_ARM_OPCODE(mrq->cmd->opcode, host->acmd),
+					mrq->cmd->arg);
+		}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 		if (host->curr.data) {
 			if (mrq->data && !mrq->data->error)
 				mrq->data->error = -ETIMEDOUT;
@@ -4680,6 +5088,16 @@ msmsdcc_probe(struct platform_device *pdev)
 	host->mmc = mmc;
 	host->curr.cmd = NULL;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+
+	if (SD_CARD(host)) {
+		ret = mmc_blk_alloc_buf();
+		if (ret) {
+			goto host_free;
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	if (!plat->disable_bam && bam_memres && dml_memres && bam_irqres)
 		host->is_sps_mode = 1;
 	else if (dmares)
@@ -4689,7 +5107,11 @@ msmsdcc_probe(struct platform_device *pdev)
 			resource_size(core_memres));
 	if (!host->base) {
 		ret = -ENOMEM;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		goto blk_buf_free;
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 		goto host_free;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	}
 
 	host->core_irqres = core_irqres;
@@ -4841,7 +5263,7 @@ msmsdcc_probe(struct platform_device *pdev)
 	mmc->caps |= plat->mmc_bus_width;
 
 	mmc->caps |= MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED;
-	mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY | MMC_CAP_ERASE;
+	mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
 
 	/*
 	 * If we send the CMD23 before multi block write/read command
@@ -5083,6 +5505,15 @@ msmsdcc_probe(struct platform_device *pdev)
 	ret = device_create_file(&pdev->dev, &host->idle_timeout);
 	if (ret)
 		goto remove_polling_file;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		msmsdcc_set_host(host);
+		ret = sysfs_create_group(&pdev->dev.kobj, &sd_dev_attr_grp);
+		if (ret) {
+			pr_err("%s: sysfs_create_group failed.\n", mmc_hostname(mmc));
+		}
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	return 0;
 
  remove_polling_file:
@@ -5143,6 +5574,12 @@ msmsdcc_probe(struct platform_device *pdev)
 	}
  ioremap_free:
 	iounmap(host->base);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+ blk_buf_free:
+	if (SD_CARD(host)) {
+		mmc_blk_free_buf();
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
  host_free:
 	mmc_free_host(mmc);
  out:
@@ -5167,6 +5604,14 @@ static int msmsdcc_remove(struct platform_device *pdev)
 	plat = host->plat;
 
 	device_remove_file(&pdev->dev, &host->max_bus_bw);
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		sysfs_remove_group(&pdev->dev.kobj, &sd_dev_attr_grp);
+		msmsdcc_set_host(NULL);
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+
 	if (!plat->status_irq)
 		device_remove_file(&pdev->dev, &host->polling);
 	device_remove_file(&pdev->dev, &host->idle_timeout);
@@ -5218,6 +5663,11 @@ static int msmsdcc_remove(struct platform_device *pdev)
 	}
 
 	iounmap(host->base);
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	if (SD_CARD(host)) {
+		mmc_blk_free_buf();
+	}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	mmc_free_host(mmc);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -5322,6 +5772,21 @@ msmsdcc_runtime_suspend(struct device *dev)
 
 	pr_debug("%s: %s: start\n", mmc_hostname(mmc), __func__);
 	if (mmc) {
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (SD_CARD(host)) {
+#ifdef SD_CARD_PM_DUMP
+			if (msmsdcc_sd_pm_dump) {
+				pr_info("%s: %s called. pending_resume=%d\n",
+						mmc_hostname(mmc), __func__,
+						host->pending_resume);
+			}
+#endif /* SD_CARD_PM_DUMP */
+			if (host->pending_resume) {
+				host->pending_resume = 0;
+				return 0;
+			}
+		}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 		host->sdcc_suspending = 1;
 		mmc->suspend_task = current;
 
@@ -5372,6 +5837,16 @@ msmsdcc_runtime_suspend(struct device *dev)
 		mmc->suspend_task = NULL;
 		if (rc && wake_lock_active(&host->sdio_suspend_wlock))
 			wake_unlock(&host->sdio_suspend_wlock);
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+		if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+			pr_info("%s: %s end. pending_resume=%d\n",
+					mmc_hostname(mmc), __func__,
+					host->pending_resume);
+		}
+#endif /* SD_CARD_PM_DUMP */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	}
 	pr_debug("%s: %s: ends with err=%d\n", mmc_hostname(mmc), __func__, rc);
 out:
@@ -5386,6 +5861,9 @@ msmsdcc_runtime_resume(struct device *dev)
 	struct mmc_host *mmc = dev_get_drvdata(dev);
 	struct msmsdcc_host *host = mmc_priv(mmc);
 	unsigned long flags;
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	int err = 0;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	if (host->plat->is_sdio_al_client)
 		return 0;
@@ -5400,7 +5878,33 @@ msmsdcc_runtime_resume(struct device *dev)
 			mmc_host_clk_release(mmc);
 		}
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+		if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+			pr_info("%s: %s called. (%s) pending_resume=%d\n",
+					mmc_hostname(mmc), __func__,
+					mmc->card ? "SD card exists" : "No card exists",
+					host->pending_resume);
+		}
+#endif /* SD_CARD_PM_DUMP */
+
+		if (mmc->card) {
+			err = mmc_resume_host(mmc);
+			if (SD_CARD(host)) {
+				if (err) {
+					mmc_detect_change(mmc, 0);
+				}
+#ifdef SD_CARD_PM_DUMP
+				if (msmsdcc_sd_pm_dump) {
+					pr_info("%s: mmc_resume_host end. err=%d.\n",
+							mmc_hostname(mmc), err);
+				}
+#endif /* SD_CARD_PM_DUMP */
+			}
+		}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 		mmc_resume_host(mmc);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 		/*
 		 * FIXME: Clearing of flags must be handled in clients
@@ -5451,7 +5955,14 @@ static int msmsdcc_pm_suspend(struct device *dev)
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
-
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+	if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+		pr_info("%s: %s called. pending_resume=%d\n",
+				mmc_hostname(mmc), __func__, host->pending_resume);
+	}
+#endif /* SD_CARD_PM_DUMP */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	if (host->plat->status_irq)
 		disable_irq(host->plat->status_irq);
 
@@ -5473,6 +5984,14 @@ static int msmsdcc_pm_suspend(struct device *dev)
 			rc = msmsdcc_runtime_suspend(dev);
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+	if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+		pr_info("%s: %s end. pending_resume=%d\n",
+				mmc_hostname(mmc), __func__, host->pending_resume);
+	}
+#endif /* SD_CARD_PM_DUMP */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	return rc;
 }
 
@@ -5509,13 +6028,38 @@ static int msmsdcc_pm_resume(struct device *dev)
 	if (host->plat->is_sdio_al_client)
 		return 0;
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+	if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+		pr_info("%s: %s called. pending_resume=%d\n",
+				mmc_hostname(mmc), __func__, host->pending_resume);
+	}
+#endif /* SD_CARD_PM_DUMP */
+
+	if (!pm_runtime_suspended(dev)) {
+		if (SD_CARD(host)) {
+			host->pending_resume = 1;
+		} else {
+			rc = msmsdcc_runtime_resume(dev);
+		}
+	}
+#else /* CONFIG_FEATURE_NCMC_SDCARD */
 	if (!pm_runtime_suspended(dev))
 		rc = msmsdcc_runtime_resume(dev);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	if (host->plat->status_irq) {
 		msmsdcc_check_status((unsigned long)host);
 		enable_irq(host->plat->status_irq);
 	}
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#ifdef SD_CARD_PM_DUMP
+	if (SD_CARD(host) && msmsdcc_sd_pm_dump) {
+		pr_info("%s: %s end. pending_resume=%d\n",
+				mmc_hostname(mmc), __func__, host->pending_resume);
+	}
+#endif /* SD_CARD_PM_DUMP */
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	return rc;
 }
 
@@ -5527,6 +6071,115 @@ static int msmsdcc_pm_resume(struct device *dev)
 #define msmsdcc_pm_resume NULL
 #define msmsdcc_suspend_noirq NULL
 #endif
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+static ssize_t mmcdiag_read(struct file *file,
+		char __user *data, size_t len, loff_t *ppos)
+{
+	struct msmsdcc_host *host = NULL;
+	unsigned int status = 0;
+	int ret = 0;
+
+	pr_info(">> mmcdiag read!");
+
+	if (len < 1) {
+		pr_err("Buffer size error. len=%u", len);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	msmsdcc_get_host(&host);
+	if (!host || !host->plat || !host->mmc ||
+			!(host->plat->status || host->plat->status_gpio)) {
+		pr_err("Diag state error.");
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if (host->plat->status) {
+		status = host->plat->status(mmc_dev(host->mmc));
+	} else {
+		status = msmsdcc_slot_status(host);
+	}
+
+	sprintf(data, "%u", status);
+	ret = 1;
+
+ out:
+	pr_info(">> mmcdiag read! ret=%d, status=%u", ret, status);
+	return ret;
+}
+
+static ssize_t mmcdiag_write(struct file *file,
+		const char __user *data, size_t len, loff_t *ppos)
+{
+	struct msmsdcc_host *host = NULL;
+	int ret = 0;
+	struct mmc_host *mmc;
+
+	pr_info(">> mmcdiag write %s!",
+			(data[0] != '0') ? "ON":"OFF");
+
+	msmsdcc_get_host(&host);
+	if (!host) {
+		pr_err("Diag state error(host)");
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if (data[0] != '0') {
+		if (host->eject) {
+			ret = -EFAULT;
+			goto out;
+		}
+
+		mmc = host->mmc;
+		if (!mmc) {
+			pr_err("Diag state error(mmc)");
+			ret = -EFAULT;
+			goto out;
+		}
+
+		mmc_claim_host(mmc);
+		ret = mmc_sd_init_card(mmc, mmc->ocr, mmc->card);
+		mmc_release_host(mmc);
+		msleep(50);
+	}
+
+ out:
+	pr_info(">> mmcdiag write %s! ret=%d",
+			(data[0] != '0') ? "ON":"OFF", ret);
+	return (ssize_t)ret;
+}
+
+static int mmcdiag_open(struct inode *inode,
+		struct file *file)
+{
+	pr_info(">> mmcdiag open!");
+	return 0;
+}
+
+static int mmcdiag_release(struct inode *inode,
+		struct file *file)
+{
+	pr_info(">> mmcdiag close!");
+	return 0;
+}
+
+static struct file_operations mmcdiag_fops = {
+	.owner		= THIS_MODULE,
+	.read		= mmcdiag_read,
+	.write		= mmcdiag_write,
+	.open		= mmcdiag_open,
+	.release	= mmcdiag_release,
+};
+
+static struct miscdevice mmcdiag_device = {
+	.minor	= MISC_DYNAMIC_MINOR,
+	.name	= "mmcdiag",
+	.fops	= &mmcdiag_fops,
+};
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 static const struct dev_pm_ops msmsdcc_dev_pm_ops = {
 	.runtime_suspend = msmsdcc_runtime_suspend,
@@ -5563,12 +6216,19 @@ static int __init msmsdcc_init(void)
 		return ret;
 	}
 #endif
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	misc_register(&mmcdiag_device);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	return platform_driver_register(&msmsdcc_driver);
 }
 
 static void __exit msmsdcc_exit(void)
 {
 	platform_driver_unregister(&msmsdcc_driver);
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	misc_deregister(&mmcdiag_device);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 #if defined(CONFIG_DEBUG_FS)
 	debugfs_remove(debugfs_file);

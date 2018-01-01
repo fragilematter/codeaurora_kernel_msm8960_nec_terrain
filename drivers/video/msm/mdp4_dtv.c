@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -114,58 +118,7 @@ static int dtv_off(struct platform_device *pdev)
 
 static int dtv_on(struct platform_device *pdev)
 {
-	int ret = 0;
-	struct msm_fb_data_type *mfd;
-	unsigned long panel_pixclock_freq , pm_qos_rate;
-
-	mfd = platform_get_drvdata(pdev);
-	panel_pixclock_freq = mfd->fbi->var.pixclock;
-
-	if (panel_pixclock_freq > 58000000)
-		/* pm_qos_rate should be in Khz */
-		pm_qos_rate = panel_pixclock_freq / 1000 ;
-	else
-		pm_qos_rate = 58000;
-	mdp4_extn_disp = 1;
-#ifdef CONFIG_MSM_BUS_SCALING
-	if (dtv_bus_scale_handle > 0)
-		msm_bus_scale_client_update_request(dtv_bus_scale_handle,
-							1);
-#else
-	if (ebi1_clk) {
-		clk_set_rate(ebi1_clk, pm_qos_rate * 1000);
-		clk_enable(ebi1_clk);
-	}
-#endif
-
-	if (dtv_pdata && dtv_pdata->lcdc_power_save)
-		dtv_pdata->lcdc_power_save(1);
-	if (dtv_pdata && dtv_pdata->lcdc_gpio_config)
-		ret = dtv_pdata->lcdc_gpio_config(1);
-
-	mfd = platform_get_drvdata(pdev);
-
-	ret = clk_set_rate(tv_src_clk, mfd->fbi->var.pixclock);
-	if (ret) {
-		pr_info("%s: clk_set_rate(%d) failed\n", __func__,
-			mfd->fbi->var.pixclock);
-		if (mfd->fbi->var.pixclock == 27030000)
-			mfd->fbi->var.pixclock = 27000000;
-		ret = clk_set_rate(tv_src_clk, mfd->fbi->var.pixclock);
-	}
-	pr_info("%s: tv_src_clk=%dkHz, pm_qos_rate=%ldkHz, [%d]\n", __func__,
-		mfd->fbi->var.pixclock/1000, pm_qos_rate, ret);
-
-	clk_enable(hdmi_clk);
-	clk_reset(hdmi_clk, CLK_RESET_ASSERT);
-	udelay(20);
-	clk_reset(hdmi_clk, CLK_RESET_DEASSERT);
-
-	if (mdp_tv_clk)
-		clk_enable(mdp_tv_clk);
-
-	ret = panel_next_on(pdev);
-	return ret;
+  return -1;
 }
 
 static int dtv_probe(struct platform_device *pdev)

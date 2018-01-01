@@ -124,6 +124,12 @@
 	.get = snd_soc_get_value_enum_double, \
 	.put = snd_soc_put_value_enum_double, \
 	.private_value = (unsigned long)&xenum }
+#define SOC_SINGLE_EXT_INFO(xname, xreg, xshift, xmax, xinvert,\
+	 xhandler_get, xhandler_put, xhandler_info) \
+{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
+	.info = xhandler_info, \
+	.get = xhandler_get, .put = xhandler_put, \
+	.private_value = SOC_SINGLE_VALUE(xreg, xshift, xmax, xinvert) }
 #define SOC_SINGLE_EXT(xname, xreg, xshift, xmax, xinvert,\
 	 xhandler_get, xhandler_put) \
 {	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
@@ -326,6 +332,10 @@ int snd_soc_codec_volatile_register(struct snd_soc_codec *codec,
 				    unsigned int reg);
 int snd_soc_codec_readable_register(struct snd_soc_codec *codec,
 				    unsigned int reg);
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+int snd_soc_codec_cal_volume(struct snd_soc_codec *codec,
+				    unsigned int reg);
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 int snd_soc_codec_writable_register(struct snd_soc_codec *codec,
 				    unsigned int reg);
 int snd_soc_codec_set_cache_io(struct snd_soc_codec *codec,
@@ -591,6 +601,9 @@ struct snd_soc_codec {
 	int (*volatile_register)(struct snd_soc_codec *, unsigned int);
 	int (*readable_register)(struct snd_soc_codec *, unsigned int);
 	int (*writable_register)(struct snd_soc_codec *, unsigned int);
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	int (*cal_volume)(struct snd_soc_codec *, unsigned int);
+#endif /* CONFIG_FEATURE_NCMC_AUDIO */
 
 	/* runtime */
 	struct snd_ac97 *ac97;  /* for ad-hoc ac97 devices */
@@ -660,6 +673,9 @@ struct snd_soc_codec_driver {
 	int (*volatile_register)(struct snd_soc_codec *, unsigned int);
 	int (*readable_register)(struct snd_soc_codec *, unsigned int);
 	int (*writable_register)(struct snd_soc_codec *, unsigned int);
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	int (*cal_volume)(struct snd_soc_codec *, unsigned int);
+#endif /* CONFIG_FEATURE_NCMC_AUDIO */
 	short reg_cache_size;
 	short reg_cache_step;
 	short reg_word_size;

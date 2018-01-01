@@ -23,6 +23,10 @@
  *     provided "AS-IS" and at no charge.
  *
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -122,7 +126,11 @@ int __init iriap_init(void)
 	/*
 	 *  Register some default services for IrLMP
 	 */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+	hints  = irlmp_service_to_hint(S_OBEX);
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 	hints  = irlmp_service_to_hint(S_COMPUTER);
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 	service_handle = irlmp_register_service(hints);
 
 	/* Register the Device object with LM-IAS */
@@ -579,7 +587,19 @@ static void iriap_getvaluebyclass_response(struct iriap_cb *self,
 
 	/* Reserve space for MUX and LAP header */
 	skb_reserve(tx_skb, self->max_header_size);
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+    if( ret_code == IAS_SUCCESS )
+    {
+        skb_put(tx_skb, 6);
+    }
+    else /* IAS_CLASS_UNKNOWN or IAS_ATTRIB_UNKNOWN */
+    {
+        skb_put(tx_skb, 2);
+    }
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 	skb_put(tx_skb, 6);
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
+
 
 	fp = tx_skb->data;
 
@@ -587,46 +607,55 @@ static void iriap_getvaluebyclass_response(struct iriap_cb *self,
 	fp[n++] = GET_VALUE_BY_CLASS | IAP_LST;
 	fp[n++] = ret_code;
 
-	/* Insert list length (MSB first) */
-	tmp_be16 = htons(0x0001);
-	memcpy(fp+n, &tmp_be16, 2);  n += 2;
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+    if( ret_code == IAS_SUCCESS )
+    {
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 
-	/* Insert object identifier ( MSB first) */
-	tmp_be16 = cpu_to_be16(obj_id);
-	memcpy(fp+n, &tmp_be16, 2); n += 2;
+		/* Insert list length (MSB first) */
+		tmp_be16 = htons(0x0001);
+		memcpy(fp+n, &tmp_be16, 2);  n += 2;
 
-	switch (value->type) {
-	case IAS_STRING:
-		skb_put(tx_skb, 3 + value->len);
-		fp[n++] = value->type;
-		fp[n++] = 0; /* ASCII */
-		fp[n++] = (__u8) value->len;
-		memcpy(fp+n, value->t.string, value->len); n+=value->len;
-		break;
-	case IAS_INTEGER:
-		skb_put(tx_skb, 5);
-		fp[n++] = value->type;
-
-		tmp_be32 = cpu_to_be32(value->t.integer);
-		memcpy(fp+n, &tmp_be32, 4); n += 4;
-		break;
-	case IAS_OCT_SEQ:
-		skb_put(tx_skb, 3 + value->len);
-		fp[n++] = value->type;
-
-		tmp_be16 = cpu_to_be16(value->len);
+		/* Insert object identifier ( MSB first) */
+		tmp_be16 = cpu_to_be16(obj_id);
 		memcpy(fp+n, &tmp_be16, 2); n += 2;
-		memcpy(fp+n, value->t.oct_seq, value->len); n+=value->len;
-		break;
-	case IAS_MISSING:
-		IRDA_DEBUG( 3, "%s: sending IAS_MISSING\n", __func__);
-		skb_put(tx_skb, 1);
-		fp[n++] = value->type;
-		break;
-	default:
-		IRDA_DEBUG(0, "%s(), type not implemented!\n", __func__);
-		break;
+
+		switch (value->type) {
+		case IAS_STRING:
+			skb_put(tx_skb, 3 + value->len);
+			fp[n++] = value->type;
+			fp[n++] = 0; /* ASCII */
+			fp[n++] = (__u8) value->len;
+			memcpy(fp+n, value->t.string, value->len); n+=value->len;
+			break;
+		case IAS_INTEGER:
+			skb_put(tx_skb, 5);
+			fp[n++] = value->type;
+
+			tmp_be32 = cpu_to_be32(value->t.integer);
+			memcpy(fp+n, &tmp_be32, 4); n += 4;
+			break;
+		case IAS_OCT_SEQ:
+			skb_put(tx_skb, 3 + value->len);
+			fp[n++] = value->type;
+
+			tmp_be16 = cpu_to_be16(value->len);
+			memcpy(fp+n, &tmp_be16, 2); n += 2;
+			memcpy(fp+n, value->t.oct_seq, value->len); n+=value->len;
+			break;
+		case IAS_MISSING:
+			IRDA_DEBUG( 3, "%s: sending IAS_MISSING\n", __func__);
+			skb_put(tx_skb, 1);
+			fp[n++] = value->type;
+			break;
+		default:
+			IRDA_DEBUG(0, "%s(), type not implemented!\n", __func__);
+			break;
+		}
+#ifdef CONFIG_FEATURE_NCMC_IRDA
 	}
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
+
 	iriap_do_r_connect_event(self, IAP_CALL_RESPONSE, tx_skb);
 
 	/* Drop reference count - see state_r_execute(). */

@@ -11,6 +11,10 @@
  *
  * Regulator Driver Interface.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __LINUX_REGULATOR_DRIVER_H_
 #define __LINUX_REGULATOR_DRIVER_H_
@@ -136,6 +140,9 @@ struct regulator_ops {
 
 	/* set regulator suspend operating mode (defined in regulator.h) */
 	int (*set_suspend_mode) (struct regulator_dev *, unsigned int mode);
+
+    /* set regulator pull down */
+    int (*set_pull_down) (struct regulator_dev *, unsigned int enable);
 };
 
 /*

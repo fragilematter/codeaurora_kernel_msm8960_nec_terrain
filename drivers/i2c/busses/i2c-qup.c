@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 /*
  * QUP driver for Qualcomm MSM platforms
  *
@@ -166,6 +170,13 @@ struct qup_i2c_dev {
 	struct mutex                 mlock;
 	void                         *complete;
 	int                          i2c_gpios[ARRAY_SIZE(i2c_rsrcs)];
+
+    char                         num_byte;
+
+    short                        trans_byte;
+    short                        out_byte_count;
+    short                        cnt_bit;
+	struct i2c_msg*              msg_tmp;
 };
 
 #ifdef DEBUG
@@ -194,6 +205,21 @@ qup_i2c_interrupt(int irq, void *devid)
 	uint32_t status1 = readl_relaxed(dev->base + QUP_ERROR_FLAGS);
 	uint32_t op_flgs = readl_relaxed(dev->base + QUP_OPERATIONAL);
 	int err = 0;
+	
+    uint32_t out_buff_size = 0;
+    uint32_t tmp = 0;
+
+    out_buff_size = readl_relaxed( dev->base + 0x104 );
+    if( out_buff_size < dev->out_byte_count ) {
+        tmp = dev->out_byte_count - out_buff_size;
+
+        dev->cnt_bit += tmp;
+        dev->trans_byte += tmp;
+
+        dev->trans_byte -= ( dev->cnt_bit / 8 );
+        dev->cnt_bit = ( dev->cnt_bit % 8 );
+    }
+    dev->out_byte_count = out_buff_size;
 
 	if (!dev->msg || !dev->complete) {
 		/* Clear Error interrupt if it's a level triggered interrupt*/
@@ -778,6 +804,13 @@ qup_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		}
 		qup_i2c_pwr_mgmt(dev, 1);
 	}
+
+    dev->trans_byte = 0;
+    dev->out_byte_count = 0;
+    dev->cnt_bit = 0;
+
+    dev->msg_tmp = msgs;
+
 	/* Initialize QUP registers during first transfer */
 	if (dev->clk_ctl == 0) {
 		int fs_div;
@@ -998,7 +1031,8 @@ timeout_err:
 				} else if (dev->err < 0) {
 					dev_err(dev->dev,
 					"QUP data xfer error %d\n", dev->err);
-					ret = dev->err;
+/* Support for Alarm watch */
+					ret = -ECOMM;
 					goto out_err;
 				} else if (dev->err > 0) {
 					/*
@@ -1008,6 +1042,8 @@ timeout_err:
 					 * this error happens
 					 */
 					qup_i2c_recover_bus_busy(dev);
+/* Support for Alarm watch */
+					dev->err = ECOMM;
 				}
 				ret = -dev->err;
 				goto out_err;
@@ -1069,6 +1105,8 @@ timeout_err:
 
 	ret = num;
  out_err:
+    dev->msg_tmp->trans_byte = dev->trans_byte - 2;
+
 	disable_irq(dev->err_irq);
 	if (dev->num_irqs == 3) {
 		disable_irq(dev->in_irq);

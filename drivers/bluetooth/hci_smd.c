@@ -17,6 +17,10 @@
  *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -41,6 +45,11 @@
  */
 
 #define RX_Q_MONITOR		(500)	/* 500 milli second */
+
+
+
+#define NCMC_BT_ALARM_HISTORY_ID          0x47
+
 
 
 static int hcismd_set;
@@ -541,6 +550,9 @@ static int hcismd_set_enable(const char *val, struct kernel_param *kp)
 	break;
 	case 0:
 		hci_smd_deregister_dev(&hs);
+	break;
+	case 99:
+		printk(KERN_ERR "[T][ARM]Event:0x%02X Info:0x%02X\n", NCMC_BT_ALARM_HISTORY_ID, 0x00);
 	break;
 	default:
 		ret = -EFAULT;

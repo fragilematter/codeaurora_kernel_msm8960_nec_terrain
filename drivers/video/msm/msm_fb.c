@@ -14,6 +14,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -40,7 +44,6 @@
 #include <linux/android_pmem.h>
 #include <linux/leds.h>
 #include <linux/pm_runtime.h>
-
 #define MSM_FB_C
 #include "msm_fb.h"
 #include "mddihosti.h"
@@ -48,17 +51,39 @@
 #include "mdp.h"
 #include "mdp4.h"
 
+#include <linux/reboot.h>
+
+#include <../../../arch/arm/mach-msm/include/mach/msm_smsm.h>
+
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_NUM	3
 #endif
 
+#if defined (LCD_DEVICE_RUBY_PT)
+#include "mipi_nt35560.h"
+#elif defined (LCD_DEVICE_D121M_PT)
+#include "mipi_renesas_d121m.h"
+#elif defined (LCD_DEVICE_D121F_PT)
+#include "mipi_renesas_d121f.h"
+#elif defined (LCD_DEVICE_G121S_PT)
+#include "mipi_renesas_g121s.h"
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+#include "mipi_renesas_hd.h"
+#endif
+#if defined(CONFIG_FEATURE_NCMC_ONLY_FOR_PRODUCTION_PROCESS_8960)
+	boolean msm_fb_disable_sleep = FALSE;
+#else
+	boolean msm_fb_disable_sleep = FALSE;
+#endif
+spinlock_t msm_fb_disable_sleep_lock = SPIN_LOCK_UNLOCKED;
+
 /*  Idle wakelock to prevent PC between wake up and Vsync */
 struct wake_lock mdp_idle_wakelock;
-
 static unsigned char *fbram;
 static unsigned char *fbram_phys;
 static int fbram_size;
 static boolean bf_supported;
+static atomic_t is_msmfb_suspended;
 
 static struct platform_device *pdev_list[MSM_FB_MAX_DEV_LIST];
 static int pdev_list_cnt;
@@ -93,6 +118,11 @@ u32 mddi_msg_level = 5;
 extern int32 mdp_block_power_cnt[MDP_MAX_BLOCK];
 extern unsigned long mdp_timer_duration;
 
+#if defined (LCD_DEVICE_RUBY_PT)
+void lm3537_led_suspend(void);
+void lm3537_led_resume(void);
+#endif
+
 static int msm_fb_register(struct msm_fb_data_type *mfd);
 static int msm_fb_open(struct fb_info *info, int user);
 static int msm_fb_release(struct fb_info *info, int user);
@@ -109,6 +139,10 @@ static int msm_fb_suspend_sub(struct msm_fb_data_type *mfd);
 static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			unsigned long arg);
 static int msm_fb_mmap(struct fb_info *info, struct vm_area_struct * vma);
+
+static int msm_fb_ioctl_ncmc(struct fb_info *info, unsigned int cmd,
+			unsigned long arg);
+
 
 #ifdef MSM_FB_ENABLE_DBGFS
 
@@ -171,13 +205,9 @@ static void msm_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (value > MAX_BACKLIGHT_BRIGHTNESS)
 		value = MAX_BACKLIGHT_BRIGHTNESS;
 
-	/* This maps android backlight level 0 to 255 into
-	   driver backlight level 0 to bl_max with rounding */
-	bl_lvl = (2 * value * mfd->panel_info.bl_max + MAX_BACKLIGHT_BRIGHTNESS)
-		/(2 * MAX_BACKLIGHT_BRIGHTNESS);
-
-	if (!bl_lvl && value)
-		bl_lvl = 1;
+/* MOD-S DRV-LCD-C */
+	bl_lvl = value;
+/* MOD-E DRV-LCD-C */
 
 	msm_fb_set_backlight(mfd, bl_lvl);
 }
@@ -243,6 +273,32 @@ int msm_fb_detect_client(const char *name)
 	}
 
 	return ret;
+}
+
+int msm_fb_detect_client_ncm(const char *name)
+{
+	int ret = -EPERM;
+
+#if defined (LCD_DEVICE_D121M_PT)
+    if (!strncmp(name, "mipi_video_toshiba_d121m_pt", sizeof("mipi_video_toshiba_d121m_pt")-1))
+        ret = 0;
+#elif defined (LCD_DEVICE_D121F_PT)
+    if (!strncmp(name, "mipi_video_toshiba_d121f_pt", sizeof("mipi_video_toshiba_d121f_pt")-1))
+        ret = 0;
+#elif defined (LCD_DEVICE_G121S_PT)
+    if (!strncmp(name, "mipi_video_toshiba_g121s_pt", sizeof("mipi_video_toshiba_g121s_pt")-1))
+        ret = 0;
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+    if (!strncmp(name, "mipi_video_toshiba_hd_pt", sizeof("mipi_video_toshiba_hd_pt")-1))
+        ret = 0;
+#elif defined (LCD_DEVICE_RUBY_PT)
+    if (!strncmp(name, "mipi_video_nt35560_vga_pt", sizeof("mipi_video_nt35560_vga_pt")-1))
+        ret = 0;
+    else if (!strncmp(name, "mipi_cmd_nt35560_vga_pt", sizeof("mipi_cmd_nt35560_vga_pt")-1))
+        ret = 0;
+#endif
+
+    return ret;
 }
 
 static ssize_t msm_fb_msm_fb_type(struct device *dev,
@@ -474,6 +530,15 @@ static int msm_fb_suspend(struct platform_device *pdev, pm_message_t state)
 	int ret = 0;
 
 	MSM_FB_DEBUG("msm_fb_suspend\n");
+	printk(KERN_DEBUG "[In]%s.\n", __func__);
+
+	
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n");
+		return 0;
+	}
+	
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -492,6 +557,7 @@ static int msm_fb_suspend(struct platform_device *pdev, pm_message_t state)
 	}
 
 	console_unlock();
+	printk(KERN_DEBUG "[Out]%s.\n", __func__);
 	return ret;
 }
 #else
@@ -593,6 +659,15 @@ static int msm_fb_resume(struct platform_device *pdev)
 	struct msm_fb_data_type *mfd;
 
 	MSM_FB_DEBUG("msm_fb_resume\n");
+	printk(KERN_DEBUG "[In]%s.\n", __func__);
+
+	
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n");
+		return 0;
+	}
+	
 
 	mfd = (struct msm_fb_data_type *)platform_get_drvdata(pdev);
 
@@ -605,6 +680,7 @@ static int msm_fb_resume(struct platform_device *pdev)
 	fb_set_suspend(mfd->fbi, FBINFO_STATE_RUNNING);
 	console_unlock();
 
+	printk(KERN_DEBUG "[Out]%s.\n", __func__);
 	return ret;
 }
 #else
@@ -732,14 +808,69 @@ static void msmfb_early_suspend(struct early_suspend *h)
 		break;
 	}
 #endif
+	printk(KERN_DEBUG "[In]%s.\n", __func__);
+	
+	
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n", __func__);
+		return ;
+	}
+	
+	atomic_set(&is_msmfb_suspended, 1);
+	
+#if defined (LCD_DEVICE_D121M_PT)
+	/* MDP cmd block enable */
+    mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+	mipi_renesas_d121m_disable_display(mfd);
+
+    /* MDP cmd block disable */
+    mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+#elif defined (LCD_DEVICE_D121F_PT)
+	/* MDP cmd block enable */
+    mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+	mipi_renesas_d121f_disable_display(mfd);
+
+    /* MDP cmd block disable */
+    mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+#endif
+
 	msm_fb_suspend_sub(mfd);
+#if defined (LCD_DEVICE_RUBY_PT)
+	/*suspending led_lm3537*/
+        lm3537_led_suspend();
+#endif 	
+	printk(KERN_DEBUG "[Out]%s.\n", __func__);
 }
 
+DEFINE_SEMAPHORE(msm_fb_ioctl_ppp_sem);
 static void msmfb_early_resume(struct early_suspend *h)
 {
 	struct msm_fb_data_type *mfd = container_of(h, struct msm_fb_data_type,
 						    early_suspend);
+	
+	printk(KERN_DEBUG "[In]%s.\n", __func__);
+	
+	
+	if (msm_fb_disable_sleep == TRUE)
+	{
+		printk(KERN_DEBUG "%s. Disable Sleep!!\n", __func__ );
+		return;
+	}
+
+#if defined (LCD_DEVICE_RUBY_PT)
+	/*Resume led_lm3537*/
+        lm3537_led_resume();
+#endif	
+	down(&msm_fb_ioctl_ppp_sem);
+	
+	
 	msm_fb_resume_sub(mfd);
+	up(&msm_fb_ioctl_ppp_sem);
+	atomic_set(&is_msmfb_suspended, 0);
+	printk(KERN_DEBUG "[Out]%s.\n", __func__);
 }
 #endif
 
@@ -758,6 +889,11 @@ void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl)
 	}
 
 	pdata = (struct msm_fb_panel_data *)mfd->pdev->dev.platform_data;
+
+    if (msm_fb_disable_sleep == TRUE)
+	{
+        return ;
+	}
 
 	if ((pdata) && (pdata->set_backlight)) {
 		down(&mfd->sem);
@@ -954,22 +1090,21 @@ static int msm_fb_mmap(struct fb_info *info, struct vm_area_struct * vma)
 	u32 len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.smem_len);
 	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
-	if (off >= len) {
-		/* memory mapped io */
-		off -= len;
-		if (info->var.accel_flags) {
-			mutex_unlock(&info->lock);
-			return -EINVAL;
-		}
-		start = info->fix.mmio_start;
-		len = PAGE_ALIGN((start & ~PAGE_MASK) + info->fix.mmio_len);
-	}
+	
+	if (!start)
+		return -EINVAL;
+
+	if ((vma->vm_end <= vma->vm_start) ||
+	    (off >= len) ||
+	    ((vma->vm_end - vma->vm_start) > (len - off)))
+		return -EINVAL;
 
 	/* Set VM flags. */
 	start &= PAGE_MASK;
-	if ((vma->vm_end - vma->vm_start + off) > len)
-		return -EINVAL;
 	off += start;
+	if (off < start)
+		return -EINVAL;
+
 	vma->vm_pgoff = off >> PAGE_SHIFT;
 	/* This is an IO map - tell maydump to skip this VMA */
 	vma->vm_flags |= VM_IO | VM_RESERVED;
@@ -1071,6 +1206,22 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 	var->sync = 0,	/* see FB_SYNC_* */
 	var->rotate = 0,	/* angle we rotate counter clockwise */
 	mfd->op_enable = FALSE;
+
+#if defined (LCD_DEVICE_D121M_PT)
+	var->height = 149;	/* height of picture in mm */
+	var->width = 93;	/* width of picture in mm */
+#elif defined (LCD_DEVICE_D121F_PT)
+	var->height = 95;	/* height of picture in mm */
+	var->width = 53;	/* width of picture in mm */
+#elif defined (LCD_DEVICE_G121S_PT)
+	var->height = 95;	/* height of picture in mm */
+	var->width = 53;	/* width of picture in mm */
+#endif
+#if defined (LCD_DEVICE_RUBY_PT)
+	var->height = 62 ;	/* height of picture in mm */
+	var->width = 41;	/* width of picture in mm */
+#endif
+
 
 	switch (mfd->fb_imgType) {
 	case MDP_RGB_565:
@@ -1539,6 +1690,10 @@ static int msm_fb_open(struct fb_info *info, int user)
 	return 0;
 }
 
+
+static int fb_release_cnt = 0;
+
+
 static int msm_fb_release(struct fb_info *info, int user)
 {
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
@@ -1551,6 +1706,15 @@ static int msm_fb_release(struct fb_info *info, int user)
 	}
 
 	mfd->ref_cnt--;
+
+
+	if (fb_release_cnt < 2)
+	{
+		printk(KERN_INFO "%s. fb_release_cnt is %d.\n", __func__, fb_release_cnt);
+		fb_release_cnt++;
+		return 0;
+	}
+
 
 	if (!mfd->ref_cnt) {
 		if ((ret =
@@ -1652,6 +1816,7 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 		mdp_set_dma_pan_info(info, NULL, TRUE);
 		if (msm_fb_blank_sub(FB_BLANK_UNBLANK, info, mfd->op_enable)) {
 			pr_err("%s: can't turn on display!\n", __func__);
+			up(&msm_fb_pan_sem);
 			return -EINVAL;
 		}
 	}
@@ -1660,7 +1825,6 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			     (var->activate == FB_ACTIVATE_VBL));
 	mdp_dma_pan_update(info);
 	up(&msm_fb_pan_sem);
-
 	if (unset_bl_level && !bl_updated) {
 		pdata = (struct msm_fb_panel_data *)mfd->pdev->
 			dev.platform_data;
@@ -1673,7 +1837,6 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 			bl_updated = 1;
 		}
 	}
-
 	++mfd->panel_info.frame_count;
 	return 0;
 }
@@ -3036,7 +3199,6 @@ static int msmfb_mixer_info(struct fb_info *info, unsigned long *argp)
 
 #endif
 
-DEFINE_SEMAPHORE(msm_fb_ioctl_ppp_sem);
 DEFINE_MUTEX(msm_fb_ioctl_lut_sem);
 
 /* Set color conversion matrix from user space */
@@ -3471,6 +3633,1039 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 
 		ret = msmfb_handle_pp_ioctl(&mdp_pp);
 		break;
+	    
+	default:
+
+//		MSM_FB_INFO("MDP: unknown ioctl (cmd=%x) received!\n", cmd);
+//		ret = -EINVAL;
+	    ret = msm_fb_ioctl_ncmc(info, cmd, arg);
+
+		break;
+	}
+
+   	return ret;
+}
+
+
+static int msm_fb_ioctl_ncmc(struct fb_info *info, unsigned int cmd,
+			unsigned long arg)
+{
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
+	void __user *argp = (void __user *)arg;
+	int ret = 0;
+
+	struct msmfb_request_parame user_req;
+	struct msmfb_register_write reg_write;
+	struct msmfb_register_read reg_read;
+	unsigned int *power_on_status_p = NULL;
+	unsigned int status_len = sizeof(unsigned int);
+	unsigned int status = 0;
+//	unsigned int disp_hq_on;
+
+
+
+   // unsigned int *power_on_status_p = NULL;
+   // unsigned int status_len = sizeof(unsigned int);
+//    unsigned int status = 0;  // 1.5 changes RaghuDP
+
+
+	switch (cmd) {
+    
+#if defined (LCD_DEVICE_RUBY_PT)
+	case MSMFB_CUSTOM_5 :
+	printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);//There is no state machine implemtation.
+	//So that we skip idle state part here.
+	printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+	break;
+
+	case MSMFB_CUSTOM_201 :
+
+        ret = copy_from_user(&reg_read, argp, sizeof(reg_read));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_201 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        ret = mipi_nt35560_register_read_cmd(mfd, &reg_read);
+        if (ret) {
+            printk(KERN_ERR "register read failed !! \n");
+            return ret;
+        }
+
+        ret = copy_to_user(argp, &reg_read, sizeof(reg_read));
+        break;
+	case MSMFB_CUSTOM_200 :
+
+	ret = copy_from_user(&reg_write, argp, sizeof(reg_write));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_200 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        ret = mipi_nt35560_register_write_cmd(mfd, &reg_write);
+        if (ret) {
+            printk(KERN_ERR "register write failed !! \n");
+            return ret;
+        }
+	break;
+
+    case MSMFB_CUSTOM_11 :  //LCD standby ineffective
+        msm_fb_disable_sleep = TRUE;
+        break;
+    case MSMFB_CUSTOM_10 :  //LCD standby effective
+        msm_fb_disable_sleep = FALSE;
+        break;
+
+
+#if defined (LCD_DEVICE_RUBY_PT)
+    case MSMFB_CUSTOM_12:
+	user_req.data = (void*)atomic_read(&is_msmfb_suspended);
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+	break;
+#endif
+
+    case MSMFB_CUSTOM_9:
+    {
+        ret = copy_from_user(&user_req, argp, sizeof(user_req));
+        if (ret)
+        {
+            break;
+        }
+        
+#if defined (LCD_DEVICE_KAMITSUKIGAME_PT)
+        ret = mipi_lg4573b_user_request_ctrl(&user_req);
+#elif defined (LCD_DEVICE_RUBY_PT)
+        ret = mipi_nt35560_user_request_ctrl(&user_req);
+#endif
+        if (ret)
+        {
+            break;
+        }
+
+        /* Data Copy */
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+        break;
+    }
+    case MSMFB_CUSTOM_220 :
+        power_on_status_p = smem_find(SMEM_POWER_ON_STATUS_INFO, status_len);
+        if( power_on_status_p == NULL)
+        {
+            printk(KERN_ERR "%s: smem_find failed\n", __func__);
+            return -1;
+        }
+        /* Data Copy */
+        status = *power_on_status_p;
+        ret = copy_to_user(argp, &status, sizeof(status));
+        break;
+
+//CONFIG_CHMC_EARLY_TEMPORARY
+#elif defined (LCD_DEVICE_D121M_PT)
+    case MSMFB_CUSTOM_1 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter sleep mode  */
+        ret = mipi_renesas_d121m_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_2 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit sleep mode  */
+        ret = mipi_renesas_d121m_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_3 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter deep sleep mode */
+        ret = mipi_renesas_d121m_deep_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_4 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit deep sleep mode */
+        ret = mipi_renesas_d121m_deep_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_5 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* set lcd-panel idle status */
+        mipi_renesas_d121m_set_idle_state(mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        ret = 0;
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_9:
+    {
+        ret = copy_from_user(&user_req, argp, sizeof(user_req));
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+
+        ret = mipi_renesas_d121m_user_request_ctrl(&user_req);
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+        /* Data Copy */
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+        break;
+    }
+
+    case MSMFB_CUSTOM_10 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_10 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Enable LCD "Standby" */
+        msm_fb_disable_sleep = FALSE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_10 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_11 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_11 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Disable LCD "Standby" */
+        msm_fb_disable_sleep = TRUE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_11 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_103 :
+        /* power on */
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_103 \n", __func__);
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121m_power_seq(1, mfd);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_103 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_104 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_104 \n", __func__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        /* power off */
+        ret = mipi_renesas_d121m_power_seq(0, mfd);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_104 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_156 :
+        mdp_mddi_dma_s_stop(1);
+        break;
+        
+    case MSMFB_CUSTOM_157 :
+        mdp_mddi_dma_s_stop(0);
+        break;
+
+    case MSMFB_CUSTOM_200 :
+        ret = copy_from_user(&reg_write, argp, sizeof(reg_write));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_200 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121m_register_write_cmd(mfd, &reg_write);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register write failed !! \n");
+            return ret;
+        }
+        break;
+
+    case MSMFB_CUSTOM_201 :
+        ret = copy_from_user(&reg_read, argp, sizeof(reg_read));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_201 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121m_register_read_cmd(mfd, &reg_read);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register read failed !! \n");
+            return ret;
+        }
+
+        /* Data Copy */
+        ret = copy_to_user(argp, &reg_read, sizeof(reg_read));
+        break;
+
+    case MSMFB_CUSTOM_202 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        ret = copy_from_user(&disp_hq_on, argp, sizeof(disp_hq_on));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_202 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_220 :
+        power_on_status_p = smem_find(SMEM_POWER_ON_STATUS_INFO, status_len);
+        if( power_on_status_p == NULL)
+        {
+            printk(KERN_ERR "%s: smem_find failed\n", __func__);
+            return -1; /* Coverity : 50745 */
+        }
+        /* Data Copy */
+        status = *power_on_status_p;
+        ret = copy_to_user(argp, &status, sizeof(status));
+        break;
+
+#elif defined (LCD_DEVICE_D121F_PT)
+    case MSMFB_CUSTOM_1 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter sleep mode  */
+        ret = mipi_renesas_d121f_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_2 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit sleep mode  */
+        ret = mipi_renesas_d121f_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_3 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter deep sleep mode */
+        ret = mipi_renesas_d121f_deep_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_4 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit deep sleep mode */
+        ret = mipi_renesas_d121f_deep_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_5 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* set lcd-panel idle status */
+        mipi_renesas_d121f_set_idle_state(mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        ret = 0;
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_9:
+    {
+        ret = copy_from_user(&user_req, argp, sizeof(user_req));
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+
+        ret = mipi_renesas_d121f_user_request_ctrl(&user_req);
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+        /* Data Copy */
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+        break;
+    }
+
+    case MSMFB_CUSTOM_10 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_10 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Enable LCD "Standby" */
+        msm_fb_disable_sleep = FALSE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_10 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_11 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_11 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Disable LCD "Standby" */
+        msm_fb_disable_sleep = TRUE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_11 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_103 :
+        /* power on */
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_103 \n", __func__);
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121f_power_seq(1, mfd);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_103 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_104 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_104 \n", __func__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        /* power off */
+        ret = mipi_renesas_d121f_power_seq(0, mfd);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_104 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_156 :
+        mdp_mddi_dma_s_stop(1);
+        break;
+        
+    case MSMFB_CUSTOM_157 :
+        mdp_mddi_dma_s_stop(0);
+        break;
+
+    case MSMFB_CUSTOM_200 :
+        ret = copy_from_user(&reg_write, argp, sizeof(reg_write));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_200 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121f_register_write_cmd(mfd, &reg_write);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register write failed !! \n");
+            return ret;
+        }
+        break;
+
+    case MSMFB_CUSTOM_201 :
+        ret = copy_from_user(&reg_read, argp, sizeof(reg_read));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_201 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_d121f_register_read_cmd(mfd, &reg_read);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register read failed !! \n");
+            return ret;
+        }
+
+        /* Data Copy */
+        ret = copy_to_user(argp, &reg_read, sizeof(reg_read));
+        break;
+
+    case MSMFB_CUSTOM_202 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        ret = copy_from_user(&disp_hq_on, argp, sizeof(disp_hq_on));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_202 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+        
+
+    case MSMFB_CUSTOM_220 :
+        power_on_status_p = smem_find(SMEM_POWER_ON_STATUS_INFO, status_len);
+        if( power_on_status_p == NULL)
+        {
+            printk(KERN_ERR "%s: smem_find failed\n", __func__);
+            return -1; /* Coverity : 50745 */
+        }
+        /* Data Copy */
+        status = *power_on_status_p;
+        ret = copy_to_user(argp, &status, sizeof(status));
+        break;
+
+#elif defined (LCD_DEVICE_G121S_PT)
+    case MSMFB_CUSTOM_1 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter sleep mode  */
+        ret = mipi_renesas_g121s_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_2 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit sleep mode  */
+        ret = mipi_renesas_g121s_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_3 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter deep sleep mode */
+        ret = mipi_renesas_g121s_deep_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_4 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit deep sleep mode */
+        ret = mipi_renesas_g121s_deep_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_5 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* set lcd-panel idle status */
+        mipi_renesas_g121s_set_idle_state(mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        ret = 0;
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_9:
+    {
+        ret = copy_from_user(&user_req, argp, sizeof(user_req));
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+
+        ret = mipi_renesas_g121s_user_request_ctrl(&user_req);
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+        /* Data Copy */
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+        break;
+    }
+
+    case MSMFB_CUSTOM_10 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_10 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Enable LCD "Standby" */
+        msm_fb_disable_sleep = FALSE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_10 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_11 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_11 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Disable LCD "Standby" */
+        msm_fb_disable_sleep = TRUE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_11 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_103 :
+        /* power on */
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_103 \n", __func__);
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_g121s_power_seq(1, mfd);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_103 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_104 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_104 \n", __func__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        /* power off */
+        ret = mipi_renesas_g121s_power_seq(0, mfd);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_104 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_156 :
+        mdp_mddi_dma_s_stop(1);
+        break;
+        
+    case MSMFB_CUSTOM_157 :
+        mdp_mddi_dma_s_stop(0);
+        break;
+
+    case MSMFB_CUSTOM_200 :
+        ret = copy_from_user(&reg_write, argp, sizeof(reg_write));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_200 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_g121s_register_write_cmd(mfd, &reg_write);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register write failed !! \n");
+            return ret;
+        }
+        break;
+
+    case MSMFB_CUSTOM_201 :
+        ret = copy_from_user(&reg_read, argp, sizeof(reg_read));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_201 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_g121s_register_read_cmd(mfd, &reg_read);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register read failed !! \n");
+            return ret;
+        }
+
+        /* Data Copy */
+        ret = copy_to_user(argp, &reg_read, sizeof(reg_read));
+        break;
+
+    case MSMFB_CUSTOM_202 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        ret = copy_from_user(&disp_hq_on, argp, sizeof(disp_hq_on));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_202 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_220 :
+        power_on_status_p = smem_find(SMEM_POWER_ON_STATUS_INFO, status_len);
+        if( power_on_status_p == NULL)
+        {
+            printk(KERN_ERR "%s: smem_find failed\n", __func__);
+            return -1; /* Coverity : 50745 */
+        }
+        /* Data Copy */
+        status = *power_on_status_p;
+        ret = copy_to_user(argp, &status, sizeof(status));
+        break;
+
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+    case MSMFB_CUSTOM_1 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter sleep mode  */
+        ret = mipi_renesas_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_2 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit sleep mode  */
+        ret = mipi_renesas_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_3 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* enter deep sleep mode */
+        ret = mipi_renesas_deep_standby_ctl(1, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_4 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* exit deep sleep mode */
+        ret = mipi_renesas_deep_standby_ctl(0, mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_5 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        /* Status Check */
+        if ((!mfd->op_enable) || (!mfd->panel_power_on))
+        {
+            ret = -1;
+            break;
+        }
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+        /* set lcd-panel idle status */
+        mipi_renesas_set_idle_state(mfd);
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        ret = 0;
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_9:
+    {
+        ret = copy_from_user(&user_req, argp, sizeof(user_req));
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+
+        ret = mipi_renesas_user_request_ctrl(&user_req);
+        if (ret)
+        {
+            printk(KERN_ERR "%s. Error - %d\n",__func__, __LINE__);
+            break;
+        }
+        /* Data Copy */
+        ret = copy_to_user(argp, &user_req, sizeof(user_req));
+        break;
+    }
+
+    case MSMFB_CUSTOM_10 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_10 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Enable LCD "Standby" */
+        msm_fb_disable_sleep = FALSE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_10 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_11 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_11 \n", __func__);
+
+        spin_lock( &msm_fb_disable_sleep_lock);
+
+        /* Disable LCD "Standby" */
+        msm_fb_disable_sleep = TRUE;
+
+        spin_unlock( &msm_fb_disable_sleep_lock);
+
+        ret = 0;
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_11 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_103 :
+        /* power on */
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_103 \n", __func__);
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_power_seq(1, mfd);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_103 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_104 :
+	    printk(KERN_DEBUG "[In]%s. MSMFB_CUSTOM_104 \n", __func__);
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        /* power off */
+        ret = mipi_renesas_power_seq(0, mfd);
+        if(ret)
+            MSM_FB_ERR("%s(%d): ret=%d.\n", __func__, __LINE__, ret);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	    printk(KERN_DEBUG "[Out]%s. MSMFB_CUSTOM_104 \n", __func__);
+        break;
+
+    case MSMFB_CUSTOM_156 :
+        mdp_mddi_dma_s_stop(1);
+        break;
+        
+    case MSMFB_CUSTOM_157 :
+        mdp_mddi_dma_s_stop(0);
+        break;
+
+    case MSMFB_CUSTOM_200 :
+        ret = copy_from_user(&reg_write, argp, sizeof(reg_write));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_200 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_register_write_cmd(mfd, &reg_write);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register write failed !! \n");
+            return ret;
+        }
+        break;
+
+    case MSMFB_CUSTOM_201 :
+        ret = copy_from_user(&reg_read, argp, sizeof(reg_read));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_201 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        /* MDP cmd block enable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+        ret = mipi_renesas_register_read_cmd(mfd, &reg_read);
+
+        /* MDP cmd block disable */
+        mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+        if (ret) {
+            printk(KERN_ERR "register read failed !! \n");
+            return ret;
+        }
+
+        /* Data Copy */
+        ret = copy_to_user(argp, &reg_read, sizeof(reg_read));
+        break;
+
+    case MSMFB_CUSTOM_202 :
+        printk(KERN_INFO "[In]%s. %d\n",__func__, __LINE__);
+        ret = copy_from_user(&disp_hq_on, argp, sizeof(disp_hq_on));
+        if (ret) {
+            printk(KERN_ERR "%s:MSMFB_CUSTOM_202 ioctl failed \n", __func__);
+            return ret;
+        }
+
+        printk(KERN_INFO "[Out]%s. %d\n",__func__, __LINE__);
+        break;
+
+    case MSMFB_CUSTOM_220 :
+        power_on_status_p = smem_find(SMEM_POWER_ON_STATUS_INFO, status_len);
+        if( power_on_status_p == NULL)
+        {
+            printk(KERN_ERR "%s: smem_find failed\n", __func__);
+            return -1; /* Coverity : 50745 */
+        }
+        /* Data Copy */
+        status = *power_on_status_p;
+        ret = copy_to_user(argp, &status, sizeof(status));
+        break;
+
+#endif
+    
 
 	default:
 		MSM_FB_INFO("MDP: unknown ioctl (cmd=%x) received!\n", cmd);
@@ -3480,6 +4675,7 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 
 	return ret;
 }
+
 
 static int msm_fb_register_driver(void)
 {
@@ -3665,6 +4861,31 @@ int get_fb_phys_info(unsigned long *start, unsigned long *len, int fb_num,
 }
 EXPORT_SYMBOL(get_fb_phys_info);
 
+static int msm_fb_notify_reboot(struct notifier_block *this, unsigned long code, void *x)
+{
+	struct fb_info *fbi;
+	fbi = registered_fb[0];
+
+	printk(KERN_INFO "[In]%s.\n",__func__);
+
+	if ((code == SYS_DOWN) || (code == SYS_HALT) || (code == SYS_POWER_OFF))
+	{
+		/* LCD Panel set Off */
+	    fb_blank(fbi, FB_BLANK_POWERDOWN);
+
+	    mdp_pipe_ctrl(MDP_MASTER_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	}
+
+	printk(KERN_INFO "[Out]%s.\n",__func__);
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block msm_fb_notifier = {
+    .notifier_call  = msm_fb_notify_reboot,
+    .next           = NULL,
+    .priority       = INT_MAX,
+};
+
 int __init msm_fb_init(void)
 {
 	int rc = -ENODEV;
@@ -3688,6 +4909,8 @@ int __init msm_fb_init(void)
 		}
 	}
 #endif
+
+    register_reboot_notifier(&msm_fb_notifier);
 
 	return 0;
 }

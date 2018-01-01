@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -31,6 +35,9 @@
 #include "msm_fb.h"
 #include "mdp4.h"
 #include "mipi_dsi.h"
+#if defined (LCD_DEVICE_RUBY_PT)
+#include "mipi_nt35560.h"
+#endif
 
 static struct mdp4_overlay_pipe *dsi_pipe;
 static struct msm_fb_data_type *dsi_mfd;
@@ -671,6 +678,10 @@ void mdp4_dsi_cmd_overlay(struct msm_fb_data_type *mfd)
 			mdp4_dsi_blt_dmap_busy_wait(mfd);
 
 		mdp4_overlay_update_dsi_cmd(mfd);
+
+#if defined (LCD_DEVICE_RUBY_PT)
+		mipi_nt35560_lcd_enable(dsi_mfd);
+#endif
 
 		mdp4_iommu_attach();
 		mdp4_dsi_cmd_kickoff_ui(mfd, dsi_pipe);

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -34,6 +38,15 @@
 #include "msm_fb.h"
 #include "mdp4.h"
 #include "mipi_dsi.h"
+#if defined (LCD_DEVICE_D121M_PT)
+#include "mipi_renesas_d121m.h"
+#elif defined (LCD_DEVICE_D121F_PT)
+#include "mipi_renesas_d121f.h"
+#elif defined (LCD_DEVICE_G121S_PT)
+#include "mipi_renesas_g121s.h"
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+#include "mipi_renesas_hd.h"
+#endif
 
 #define DSI_VIDEO_BASE	0xE0000
 
@@ -818,4 +831,14 @@ void mdp4_dsi_video_overlay(struct msm_fb_data_type *mfd)
 	mdp4_overlay_dsi_video_vsync_push(mfd, pipe);
 	mdp4_iommu_unmap(pipe);
 	mutex_unlock(&mfd->dma->ov_mutex);
+
+#if defined (LCD_DEVICE_D121M_PT)
+    mipi_renesas_d121m_enable_display(mfd);
+#elif defined (LCD_DEVICE_D121F_PT)
+    mipi_renesas_d121f_enable_display(mfd);
+#elif defined (LCD_DEVICE_G121S_PT)
+    mipi_renesas_g121s_enable_display(mfd);
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+    mipi_renesas_enable_display(mfd);
+#endif
 }

@@ -8,6 +8,10 @@
  * under the terms of the GNU General Public License version 2 as published by
  * the Free Software Foundation.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifdef __KERNEL__
 #include <linux/time.h>
@@ -436,7 +440,15 @@ struct input_keymap_entry {
 #define KEY_DISPLAY_OFF		245	/* display device to off state */
 
 #define KEY_WIMAX		246
-#define KEY_RFKILL		247	/* Key that controls all radios */
+//#define KEY_RFKILL		247	/* Key that controls all radios */
+
+#define KEY_FOCUS		242
+
+#define KEY_EXCLAMATION 243 
+#define KEY_MIC         244
+#define KEY_SPK         245
+#define KEY_PTT         246
+#define KEY_SYM         247
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 

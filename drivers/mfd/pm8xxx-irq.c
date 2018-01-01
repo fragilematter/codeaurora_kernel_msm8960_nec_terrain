@@ -10,6 +10,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -56,6 +60,8 @@ struct pm_irq_chip {
 	unsigned int		num_masters;
 	u8			config[0];
 };
+
+static struct pm_irq_chip *nc_irq_chip;
 
 static int pm8xxx_read_root_irq(const struct pm_irq_chip *chip, u8 *rp)
 {
@@ -436,6 +442,8 @@ struct pm_irq_chip *  __devinit pm8xxx_irq_init(struct device *dev,
 		}
 	}
 
+    nc_irq_chip = chip;
+
 	return chip;
 }
 
@@ -445,3 +453,25 @@ int __devexit pm8xxx_irq_exit(struct pm_irq_chip *chip)
 	kfree(chip);
 	return 0;
 }
+
+
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_get_rt_status(int irq_id, int* status)
+{
+    int rc;
+
+    rc = pm8xxx_get_irq_stat(nc_irq_chip, irq_id);
+    if (rc == -EAGAIN) {
+        *status = 0;
+    }
+    else {
+        *status = rc;
+    }
+
+    return 0;
+}
+
+EXPORT_SYMBOL(nc_pm8921_get_rt_status);
+#endif
+

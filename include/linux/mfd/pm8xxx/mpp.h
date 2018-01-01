@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #ifndef __PM8XXX_MPP_H
 #define __PM8XXX_MPP_H
@@ -259,5 +264,73 @@ static inline int pm8xxx_mpp_config(unsigned mpp,
 #define	PM8XXX_MPP_DTEST_DBUS2		1
 #define	PM8XXX_MPP_DTEST_DBUS3		2
 #define	PM8XXX_MPP_DTEST_DBUS4		3
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+static inline int nc_pm8921_mpp_config_digital_in(unsigned mpp, unsigned level,
+                                               unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_D_INPUT;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+
+static inline int nc_pm8921_mpp_config_digital_out(unsigned mpp, unsigned level,
+                                                unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_D_OUTPUT;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+
+static inline int nc_pm8921_mpp_config_bi_dir(unsigned mpp, unsigned level,
+                                           unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_D_BI_DIR;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+
+static inline int nc_pm8921_mpp_config_analog_input(unsigned mpp, unsigned level,
+                                                 unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_A_INPUT;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+
+static inline int nc_pm8921_mpp_config_analog_output(unsigned mpp, unsigned level,
+                                                  unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_A_OUTPUT;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+
+static inline int nc_pm8921_mpp_config_current_sink(unsigned mpp, unsigned level,
+                                                 unsigned control)
+{
+    struct pm8xxx_mpp_config_data pm8921_mpp_config_data;
+    pm8921_mpp_config_data.type = PM8XXX_MPP_TYPE_SINK;
+    pm8921_mpp_config_data.level = level;
+    pm8921_mpp_config_data.control = control;
+
+    return pm8xxx_mpp_config(mpp, &pm8921_mpp_config_data);
+}
+#endif
 
 #endif

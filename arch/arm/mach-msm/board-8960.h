@@ -10,6 +10,14 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Copyright (C) 2011 NEC CASIO Mobile Communications, Ltd.
+ *
+ *  No permission to use, copy, modify and distribute this software
+ *  and its documentation for any purpose is granted.
+ *  This software is provided under applicable license agreement only.
+ */
+
 #ifndef __ARCH_ARM_MACH_MSM_BOARD_MSM8960_H
 #define __ARCH_ARM_MACH_MSM_BOARD_MSM8960_H
 
@@ -69,12 +77,11 @@ enum {
 	SX150X_LIQUID,
 };
 
-#endif
-
 extern struct sx150x_platform_data msm8960_sx150x_data[];
 extern struct msm_camera_board_info msm8960_camera_board_info;
 extern unsigned char hdmi_is_primary;
 
+extern struct msm_camera_board_info msm8960_camera_board_info_sub;
 void msm8960_init_cam(void);
 void msm8960_init_fb(void);
 void msm8960_init_pmic(void);
@@ -93,3 +100,47 @@ uint32_t msm_rpm_get_swfi_latency(void);
 #define MSM_8960_GSBI4_QUP_I2C_BUS_ID 4
 #define MSM_8960_GSBI3_QUP_I2C_BUS_ID 3
 #define MSM_8960_GSBI10_QUP_I2C_BUS_ID 10
+#define MSM_8960_GSBI2_QUP_I2C_BUS_ID 2
+#define MSM_8960_GSBI8_QUP_I2C_BUS_ID 8
+#ifdef CONFIG_INPUT_ANALOGDEVICE_ADUX1000_NCM
+#define MSM_8960_GSBI8_QUP_I2C_BUS_ID 8
+#endif /* CONFIG_INPUT_ANALOGDEVICE_ADUX1000_NCM */
+#define MSM_8960_GSBI11_QUP_I2C_BUS_ID 11
+#define MSM_8960_GSBI12_QUP_I2C_BUS_ID 12
+#undef CONFIG_KS8851
+#define NCM_FUNCTION
+#ifdef NCM_FUNCTION
+struct pm8xxx_mpp_init {
+  unsigned      mpp;
+  struct pm8xxx_mpp_config_data config;
+};
+struct pm8xxx_gpio_init {
+  unsigned      gpio;
+  struct pm_gpio      config;
+};
+extern struct pm8xxx_mpp_init nc_pm8921_mpps[] __initdata;
+extern int nc_pm8921_mpps_num __initdata;
+extern struct pm8xxx_gpio_init nc_pm8921_gpios[] __initdata;
+extern int nc_pm8921_gpios_num __initdata;
+extern struct gpio_regulator_platform_data nc_msm_gpio_regulator_pdata[] __devinitdata;
+extern struct regulator_init_data nc_msm_saw_regulator_pdata_s5;
+extern struct regulator_init_data nc_msm_saw_regulator_pdata_s6;
+extern struct pm8xxx_regulator_platform_data nc_msm_pm8921_regulator_pdata[] __devinitdata;
+extern int nc_msm_pm8921_regulator_pdata_len __devinitdata;
+extern struct rpm_regulator_platform_data nc_msm_rpm_regulator_pdata __devinitdata;
+
+
+extern struct pm8xxx_mpp_init nc_pm8921_mpps_oem[] __initdata;
+extern int nc_pm8921_mpps_oem_num __initdata;
+extern struct pm8xxx_gpio_init nc_pm8921_gpios_oem[] __initdata;
+extern int nc_pm8921_gpios_oem_num __initdata;
+extern struct rpm_regulator_platform_data nc_msm_rpm_regulator_pdata_oem __devinitdata;
+extern struct pm8921_charger_platform_data nc_pm8921_chg_pdata __devinitdata;
+extern struct pm8xxx_adc_platform_data nc_pm8xxx_adc_pdata;
+
+#ifndef CONFIG_FEATURE_NCMC_Q89_BRB
+extern struct pm8xxx_regulator_platform_data nc_msm_pm8921_regulator_pdata_oem[] __devinitdata;
+#endif
+
+#endif /* NCM_FUNCTION */
+#endif

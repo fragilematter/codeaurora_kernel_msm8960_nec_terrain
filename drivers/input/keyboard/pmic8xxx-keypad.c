@@ -10,6 +10,14 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Copyright (C) 2011 NEC CASIO Mobile Communications, Ltd.
+ *
+ *  No permission to use, copy, modify and distribute this software
+ *  and its documentation for any purpose is granted.
+ *  This software is provided under applicable license agreement only.
+ */
+
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/kernel.h>
@@ -22,8 +30,14 @@
 
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/gpio.h>
+#include <linux/keypad_cmd.h>
 #include <linux/input/pmic8xxx-keypad.h>
 
+#include <linux/oemnc_info.h>
+
+#define PM8XXX_BRB
+#define PM8XXX_DEBUG_PRINT
+#define CONFIG_KEYPAD_NCMC_RUBY
 #define PM8XXX_MAX_ROWS		18
 #define PM8XXX_MAX_COLS		8
 #define PM8XXX_ROW_SHIFT	3
@@ -83,6 +97,14 @@
 
 #define KEYP_CLOCK_FREQ			32768
 
+#define NCM_FUNCTION
+
+static volatile int keypad_mask = 0;
+static void *g_callback = NULL;
+static keypad_cmd_callback_param_keycode g_keycode;
+
+static struct input_dev *g_kpinput;
+
 /**
  * struct pmic8xxx_kp - internal keypad data structure
  * @pdata - keypad platform data pointer
@@ -109,6 +131,65 @@ struct pmic8xxx_kp {
 
 	u8 ctrl_reg;
 };
+
+#ifdef PM8XXX_BRB
+
+static const unsigned int master_pf_keymap[] = {
+	KEY(0, 0, KEY_VOLUMEUP),
+	KEY(1, 0, KEY_RESERVED),
+	KEY(2, 0, KEY_1),
+	KEY(3, 0, KEY_4),
+	KEY(4, 0, KEY_7),
+	KEY(5, 0, KEY_NUMERIC_STAR),
+	
+	KEY(0, 1, KEY_VOLUMEDOWN),
+	KEY(1, 1, KEY_RESERVED),
+	KEY(2, 1, KEY_2),
+	KEY(3, 1, KEY_5),
+	KEY(4, 1, KEY_8),
+	KEY(5, 1, KEY_0),
+	
+	KEY(0, 2, KEY_CAMERA_FOCUS),
+	KEY(1, 2, KEY_BACK),
+	KEY(2, 2, KEY_3),
+	KEY(3, 2, KEY_6),
+	KEY(4, 2, KEY_9),
+	KEY(5, 2, KEY_NUMERIC_POUND),
+	
+	KEY(0, 3, KEY_CAMERA_SNAPSHOT),
+	KEY(1, 3, KEY_4), //MAIN4
+	KEY(2, 3, KEY_F1),
+	KEY(3, 3, KEY_FOCUS),
+	KEY(4, 3, KEY_CAMERA),
+	KEY(5, 3, KEY_F6),
+	
+	KEY(0, 4, KEY_RESERVED),
+	KEY(1, 4, KEY_MENU),
+	KEY(2, 4, KEY_DOWN),
+	KEY(3, 4, KEY_LEFT),
+	KEY(4, 4, KEY_ENTER),
+	KEY(5, 4, KEY_F2),
+	
+	KEY(0, 5, KEY_3), //SIDE3
+	KEY(1, 5, KEY_HOME),
+	KEY(2, 5, KEY_UP),
+	KEY(3, 5, KEY_SEND),
+	KEY(4, 5, KEY_RIGHT),
+	KEY(5, 5, KEY_RESERVED),
+	
+	KEY(0, 6, KEY_RESERVED),
+	KEY(1, 6, KEY_F11),
+	KEY(2, 6, KEY_F4),
+	KEY(3, 6, KEY_F5),
+	KEY(4, 6, KEY_DELETE),
+	KEY(5, 6, KEY_SEARCH),
+};
+static const struct matrix_keymap_data master_pf_keymap_data = {
+	.keymap_size	= ARRAY_SIZE(master_pf_keymap),
+	.keymap		= master_pf_keymap,
+};
+#endif // #ifdef PM8XXX_BRB
+
 
 static int pmic8xxx_kp_write_u8(struct pmic8xxx_kp *kp,
 				 u8 data, u16 reg)
@@ -260,6 +341,71 @@ static int pmic8xxx_kp_read_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 	return rc;
 }
 
+unsigned char keypad_cmd(unsigned char type, int *val)
+{
+	unsigned char ret = 0;
+	
+	switch( type ){
+	case KEYPAD_CMD_TYPE_MASK:
+		printk(KERN_DEBUG "[keypad_cmd]: KEY_MASK (val:0x%02X)\n",val[0]);
+		if (val[0] == 0){
+			keypad_mask = 0;
+			g_callback = NULL;
+			ret = 1;
+		}else if (val[0] == 1){
+			keypad_mask |= KEY_DIAG_FLG_KEYMASK;
+			ret = 1;
+		}
+		break;
+	
+	case KEYPAD_CMD_TYPE_KEY_EMULATION:
+		printk(KERN_DEBUG "[keypad_cmd]: KEY_EMULATION input_report_key(val:0x%02X 0x%02X)\n",val[1] ,val[2]);
+		input_report_key(g_kpinput,val[1],val[2]);
+		input_sync(g_kpinput);
+		ret = 1;
+		break;
+	}
+	return ret;
+}
+EXPORT_SYMBOL(keypad_cmd);
+
+unsigned char keypad_cmd_callback(unsigned char type,
+				 unsigned char val, void (*func)(void *))
+{
+	printk(KERN_DEBUG "[keypad_cmd]:%s (type:0x%02X keypad_mask:0x%02X)\n",__func__,type ,keypad_mask);
+	if (type != KEYPAD_CMD_TYPE_GET_KEYCODE)
+		return 0;
+	
+	keypad_mask |= KEY_DIAG_FLG_RAND_IN;
+	g_callback = func;
+	g_keycode.key_code = 0;
+	return 1;
+}
+EXPORT_SYMBOL(keypad_cmd_callback);
+
+static void keypad_callback(void (*func)(void *) )
+{
+	if (func != NULL)
+		func(&g_keycode);
+	
+	keypad_mask &= ~(KEY_DIAG_FLG_RAND_IN);
+	g_callback = NULL;
+}
+
+void keypad_diag_func(int code)
+{
+	g_keycode.key_code = code;
+
+	keypad_callback(g_callback);
+}
+EXPORT_SYMBOL(keypad_diag_func);
+
+int keypad_mask_get(void)
+{
+	return keypad_mask;
+}
+EXPORT_SYMBOL(keypad_mask_get);
+
 static void __pmic8xxx_kp_scan_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 					 u16 *old_state)
 {
@@ -280,13 +426,30 @@ static void __pmic8xxx_kp_scan_matrix(struct pmic8xxx_kp *kp, u16 *new_state,
 					"pressed" : "released");
 
 			code = MATRIX_SCAN_CODE(row, col, PM8XXX_ROW_SHIFT);
-
-			input_event(kp->input, EV_MSC, MSC_SCAN, code);
-			input_report_key(kp->input,
+			if ((keypad_mask & KEY_DIAG_FLG_RAND_IN) != 0) {
+				if (new_state[row] & (1 << col))
+					keypad_diag_func(kp->keycodes[code]);
+			}else if (!(keypad_mask) && kp->keycodes[code]) {
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_RUBY) || defined(CONFIG_FEATURE_NCMC_SYLPH)
+#ifdef CONFIG_KEYPAD_NCMC_RUBY
+				if( kp->keycodes[code] )
+#else
+				if( ( kp->keycodes[code] == KEY_VOLUMEUP   ) ||
+				    ( kp->keycodes[code] == KEY_VOLUMEDOWN ) ||
+				    ( kp->keycodes[code] == KEY_HOME )     )
+#endif
+#else /* CONFIG_FEATURE_NCMC_D121F || CONFIG_FEATURE_NCMC_RUBY || CONFIG_FEATURE_NCMC_SYLPH */
+				if( ( kp->keycodes[code] == KEY_VOLUMEUP   ) ||
+				    ( kp->keycodes[code] == KEY_VOLUMEDOWN ) )
+#endif /* CONFIG_FEATURE_NCMC_D121F || CONFIG_FEATURE_NCMC_RUBY || CONFIG_FEATURE_NCMC_SYLPH */
+				{
+					input_event(kp->input, EV_MSC, MSC_SCAN, code);
+					input_report_key(kp->input,
 					kp->keycodes[code],
 					!(new_state[row] & (1 << col)));
-
-			input_sync(kp->input);
+					input_sync(kp->input);
+				}
+			}
 		}
 	}
 }
@@ -457,6 +620,33 @@ static int __devinit pmic8xxx_kpd_init(struct pmic8xxx_kp *kp)
 
 }
 
+
+
+#ifdef NCM_FUNCTION
+static int  __devinit nc_pmic8xxx_kp_config_gpio(int gpio_start, int num_gpios,
+                                  struct pmic8xxx_kp *kp, struct pm_gpio *gpio_config)
+{
+    int rc, i;
+
+    if (gpio_start < 0 || num_gpios < 0)
+        return -EINVAL;
+
+    for (i = 0; i < num_gpios; i++) {
+#ifdef PM8XXX_DEBUG_PRINT
+        printk(KERN_DEBUG "[pmic8xxx_kp]%s: gpio:%02d) set\n", __func__,gpio_start + i);
+#endif
+        rc = pm8xxx_gpio_config(gpio_start + i, &gpio_config[i]);
+        if (rc) {
+            dev_err(kp->dev, "%s: FAIL pm8xxx_gpio_config():"
+                "for PM GPIO [%d] rc=%d.\n",
+                __func__, gpio_start + i, rc);
+            return rc;
+        }
+    }
+
+    return 0;
+}
+#else
 static int  __devinit pmic8xxx_kp_config_gpio(int gpio_start, int num_gpios,
 			struct pmic8xxx_kp *kp, struct pm_gpio *gpio_config)
 {
@@ -466,6 +656,9 @@ static int  __devinit pmic8xxx_kp_config_gpio(int gpio_start, int num_gpios,
 		return -EINVAL;
 
 	for (i = 0; i < num_gpios; i++) {
+#ifdef PM8XXX_DEBUG_PRINT
+		printk(KERN_DEBUG "[pmic8xxx_kp]%s: gpio:%02d) set\n", __func__,gpio_start + i);
+#endif
 		rc = pm8xxx_gpio_config(gpio_start + i, gpio_config);
 		if (rc) {
 			dev_err(kp->dev, "%s: FAIL pm8xxx_gpio_config():"
@@ -477,6 +670,8 @@ static int  __devinit pmic8xxx_kp_config_gpio(int gpio_start, int num_gpios,
 
 	return 0;
 }
+#endif
+
 
 static int pmic8xxx_kp_enable(struct pmic8xxx_kp *kp)
 {
@@ -537,6 +732,11 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 	int rc;
 	u8 ctrl_val;
 
+#ifdef NCM_FUNCTION
+    uint32_t hw_rev = 0;
+#endif
+
+#ifndef NCM_FUNCTION
 	struct pm_gpio kypd_drv = {
 		.direction	= PM_GPIO_DIR_OUT,
 		.output_buffer	= PM_GPIO_OUT_BUF_OPEN_DRAIN,
@@ -547,7 +747,11 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 		.function	= PM_GPIO_FUNC_1,
 		.inv_int_pol	= 1,
 	};
+#endif /* NCM_FUNCTION */
 
+#ifdef NCM_FUNCTION
+
+#else
 	struct pm_gpio kypd_sns = {
 		.direction	= PM_GPIO_DIR_IN,
 		.pull		= PM_GPIO_PULL_UP_31P5,
@@ -556,6 +760,8 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 		.function	= PM_GPIO_FUNC_NORMAL,
 		.inv_int_pol	= 1,
 	};
+#endif /* NCM_FUNCTION */
+
 
 
 	if (!pdata || !pdata->num_cols || !pdata->num_rows ||
@@ -591,6 +797,7 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 	}
 
 	keymap_data = pdata->keymap_data;
+//	keymap_data = &master_pf_keymap_data;
 	if (!keymap_data) {
 		dev_err(&pdev->dev, "no keymap data supplied\n");
 		return -EINVAL;
@@ -663,19 +870,52 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 		goto err_get_irq;
 	}
 
+#ifdef NCM_FUNCTION
+    hw_rev = hw_revision_read();
+    printk("Ruby: Hardware Revision %x \n",hw_rev);
+
+    if (hw_rev == HW_REV_5P0) {
+        rc = nc_pmic8xxx_kp_config_gpio(pdata->cols_gpio_start,
+            pdata->num_cols, kp, nc_kypd_sns);
+    } else {
+        rc = nc_pmic8xxx_kp_config_gpio(pdata->cols_gpio_start,
+            pdata->num_cols, kp, nc_kypd_sns_oem);
+    }
+    
+    if (rc < 0) {
+        dev_err(&pdev->dev, "unable to configure keypad sense lines\n");
+        goto err_gpio_config;
+    }
+#else
 	rc = pmic8xxx_kp_config_gpio(pdata->cols_gpio_start,
 					pdata->num_cols, kp, &kypd_sns);
 	if (rc < 0) {
 		dev_err(&pdev->dev, "unable to configure keypad sense lines\n");
 		goto err_gpio_config;
 	}
+#endif /* NCM_FUNCTION */
 
+#ifdef NCM_FUNCTION
+    if (hw_rev == HW_REV_5P0) {
+        rc = nc_pmic8xxx_kp_config_gpio(pdata->rows_gpio_start,
+            pdata->num_rows, kp, nc_kypd_drv);
+    } else {
+        rc = nc_pmic8xxx_kp_config_gpio(pdata->rows_gpio_start,
+            pdata->num_rows, kp, nc_kypd_drv_oem);
+    }
+    
+    if (rc < 0) {
+        dev_err(&pdev->dev, "unable to configure keypad sense lines\n");
+        goto err_gpio_config;
+    }
+#else
 	rc = pmic8xxx_kp_config_gpio(pdata->rows_gpio_start,
 					pdata->num_rows, kp, &kypd_drv);
 	if (rc < 0) {
 		dev_err(&pdev->dev, "unable to configure keypad drive lines\n");
 		goto err_gpio_config;
 	}
+#endif /* NCM_FUNCTION */
 
 	rc = request_any_context_irq(kp->key_sense_irq, pmic8xxx_kp_irq,
 				 IRQF_TRIGGER_RISING, "pmic-keypad", kp);
@@ -704,6 +944,8 @@ static int __devinit pmic8xxx_kp_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "unable to register keypad input device\n");
 		goto err_pmic_reg_read;
 	}
+	
+    g_kpinput = kp->input;
 
 	device_init_wakeup(&pdev->dev, pdata->wakeup);
 
@@ -808,3 +1050,4 @@ MODULE_DESCRIPTION("PMIC8XXX keypad driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:pmic8xxx_keypad");
 MODULE_AUTHOR("Trilok Soni <tsoni@codeaurora.org>");
+

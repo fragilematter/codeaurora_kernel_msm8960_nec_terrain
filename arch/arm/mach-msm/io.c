@@ -16,6 +16,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -202,6 +206,9 @@ static struct map_desc msm8960_io_desc[] __initdata = {
 	MSM_DEVICE(DEBUG_UART),
 #endif
 	MSM_CHIP_DEVICE(QFPROM, MSM8960),
+  MSM_DEVICE(OEM_NCMC_DB_UINIT),
+  MSM_DEVICE(OEM_NCMC_DB_FLG_UINIT),
+  MSM_DEVICE(OEM_NCMC_FB_UINIT),
 };
 
 void __init msm_map_msm8960_io(void)

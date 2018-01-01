@@ -14,6 +14,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/platform_device.h>
 #include <linux/module.h>
@@ -310,6 +314,28 @@ static DECLARE_WORK(smsm_cb_work, notify_smsm_cb_clients_worker);
 static DEFINE_MUTEX(smsm_lock);
 static struct smsm_state_info *smsm_states;
 static int spinlocks_initialized;
+
+#define MESSAGE_BUF_ADDRESS     MSM_OEM_NCMC_DB_UINIT_BASE
+#define MESSAGE_BUF_SIZE_MAX    (1024)
+#define SYSLOG_BUF_ADDRESS      (MSM_OEM_NCMC_DB_UINIT_BASE + SZ_1M)
+#define SYSLOG_BUF_SIZE_MAX     (1<<17)
+#define OEM_NCMC_FATAL_FLG_ON  0x10ad10ad  /* FATAL FLG:ON  */
+
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
+static uint32_t ncmc_fatal_mode_flg = OEM_NCMC_FATAL_MODE_INIT;
+
+void set_dload_mode(int on);
+
+void ncmc_set_fatal_flg(unsigned int fatal_flag);
+
+extern int ncmc_syslog(char *buf, int len);
+extern int ncmc_pullout_pc(char *buf, int len);
 
 static inline void smd_write_intr(unsigned int val,
 				const void __iomem *addr)
@@ -3152,3 +3178,131 @@ module_init(msm_smd_init);
 MODULE_DESCRIPTION("MSM Shared Memory Core");
 MODULE_AUTHOR("Brian Swetland <swetland@google.com>");
 MODULE_LICENSE("GPL");
+
+int ncmc_set_fatal_mode(int mode)
+{
+    if( (ncmc_fatal_mode_flg == OEM_NCMC_FATAL_MODE_APPS)  ||
+        (ncmc_fatal_mode_flg == OEM_NCMC_FATAL_MODE_MODEM) ||
+        (ncmc_fatal_mode_flg == OEM_NCMC_FATAL_MODE_DSP)   ||
+        (ncmc_fatal_mode_flg == OEM_NCMC_FATAL_MODE_LPASS) ||
+        (ncmc_fatal_mode_flg == OEM_NCMC_FATAL_MODE_RIVA)  )
+    {
+        return OEM_NCMC_FATAL_MODE_ERR;
+    }
+
+    ncmc_fatal_mode_flg = mode;
+    
+    return ncmc_fatal_mode_flg;
+}
+EXPORT_SYMBOL(ncmc_set_fatal_mode);
+
+int ncmc_get_fatal_mode(void)
+{
+    return ncmc_fatal_mode_flg;
+}
+EXPORT_SYMBOL(ncmc_get_fatal_mode);
+
+/*************************************************
+This is Fatal Error(as Qualocomm's Term) handler.
+This collects debug information, and save to none_initialize memory.
+And, send message for the Modem to reset system.
+*************************************************/
+#define MESSAGE_HEAD "APP "
+void ncmc_handle_fatalA(char *message,int message_len)
+{
+    //char *syslog_buf=(char*)SYSLOG_BUF_IN_NON_INITIALIZE;
+    int n;
+    char *ptr;
+    int rest;
+    int mode            = OEM_NCMC_FATAL_MODE_INIT;
+    uint32_t fatal_flag = OEM_NCMC_FATAL_FLG_ON;
+
+    ptr = (char*)MESSAGE_BUF_ADDRESS;
+    rest = MESSAGE_BUF_SIZE_MAX;
+
+    mode = ncmc_get_fatal_mode();
+    
+    if(mode != OEM_NCMC_FATAL_MODE_MODEM)
+    {
+        smsm_reset_modem(SMSM_RESET);
+        memset((void *)MESSAGE_BUF_ADDRESS, 0x00, MESSAGE_BUF_SIZE_MAX);
+    }
+    
+    memset((void *)SYSLOG_BUF_ADDRESS, 0x00, SYSLOG_BUF_SIZE_MAX);
+
+    if(mode == OEM_NCMC_FATAL_MODE_APPS)
+    {
+        n=strlen(MESSAGE_HEAD);
+        if((n>=0)&&(n<=rest))
+        {
+            strncpy(ptr,MESSAGE_HEAD,n);
+            ptr  += n;
+            rest -= n;
+        };
+
+        if((message_len>=0)&&(message_len<=rest))
+        {
+
+            strncpy(ptr,message,message_len);
+            ptr  += message_len;
+            rest -= message_len;
+        }
+
+        n=strlen("\n");
+        if((n>=0)&&(n<=rest))
+        {
+            strncpy(ptr,"\n",n);
+            ptr  += n;
+            rest -= n;
+        };
+
+        if(rest>=0)
+        {
+            n=ncmc_pullout_pc(ptr,rest);
+            if(n>=0){
+                ptr  += n;
+                rest -= n;
+                if(rest>0){
+                    memset((void*)ptr,0,rest);
+                }
+            }
+        };
+    }
+    else if(mode == OEM_NCMC_FATAL_MODE_MODEM)
+    {
+        if(memcmp((void*)ptr,"Q6SW",sizeof("Q6SW")-1)!= 0)
+        {
+            strncpy(ptr,"Q6SW Fatal exception",sizeof("Q6SW Fatal exception"));
+        }
+    }
+    else if(mode == OEM_NCMC_FATAL_MODE_DSP)
+    {
+        strncpy(ptr,"DSP Fatal exception",sizeof("DSP Fatal exception"));
+    }
+    else if(mode == OEM_NCMC_FATAL_MODE_LPASS)
+    {
+        strncpy(ptr,"LPASS Fatal exception",sizeof("LPASS Fatal exception"));
+    }
+    else if(mode == OEM_NCMC_FATAL_MODE_RIVA)
+    {
+        strncpy(ptr,"RIVA Fatal exception",sizeof("RIVA Fatal exception"));
+    }
+    else
+    {
+        strncpy(ptr,"OTHER Fatal exception",sizeof("OTHER Fatal exception"));
+    }
+
+    ncmc_syslog((char*)SYSLOG_BUF_ADDRESS,SYSLOG_BUF_SIZE_MAX);
+
+    ncmc_set_fatal_flg(fatal_flag);
+
+
+#ifdef  CONFIG_OEM_CH_NORMAL_RELEASE
+    set_dload_mode(1);
+#else   // CONFIG_OEM_CH_NORMAL_RELEASE
+    set_dload_mode(0);
+#endif  // CONFIG_OEM_CH_NORMAL_RELEASE
+
+}
+EXPORT_SYMBOL(ncmc_handle_fatalA);
+

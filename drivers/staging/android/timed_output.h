@@ -12,6 +12,10 @@
  * GNU General Public License for more details.
  *
 */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef _LINUX_TIMED_OUTPUT_H
 #define _LINUX_TIMED_OUTPUT_H
@@ -29,6 +33,9 @@ struct timed_output_dev {
 	struct device	*dev;
 	int		index;
 	int		state;
+	/* vibrator volt */
+	int		(*set_volt)(struct timed_output_dev *sdev, int value);
+	int		(*get_volt)(struct timed_output_dev *sdev);
 };
 
 extern int timed_output_dev_register(struct timed_output_dev *dev);

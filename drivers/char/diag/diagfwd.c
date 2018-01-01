@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/slab.h>
 #include <linux/init.h>
 #include <linux/module.h>
@@ -33,6 +37,7 @@
 #include "diagfwd.h"
 #include "diagfwd_cntl.h"
 #include "diagchar_hdlc.h"
+
 #ifdef CONFIG_DIAG_SDIO_PIPE
 #include "diagfwd_sdio.h"
 #endif
@@ -42,11 +47,16 @@
 #define ALL_SSID		-1
 #define MAX_SSID_PER_RANGE	100
 
+#define D_DIAG_MODE_CMD		0x004A
+#define	D_DIAG_B_MODE		0
+int	g_b_mode = 1;
+
+
 int diag_debug_buf_idx;
 unsigned char diag_debug_buf[1024];
 static unsigned int buf_tbl_size = 8; /*Number of entries in table of buffers */
 struct diag_master_table entry;
-smd_channel_t *ch_temp, *chqdsp_temp, *ch_wcnss_temp;
+smd_channel_t *ch_temp=NULL, *chqdsp_temp=NULL, *ch_wcnss_temp=NULL;
 int diag_event_num_bytes;
 int diag_event_config;
 struct diag_send_desc_type send = { NULL, NULL, DIAG_STATE_START, 0 };
@@ -848,6 +858,63 @@ void diag_send_msg_mask_update(smd_channel_t *ch, int updated_ssid_first,
 	mutex_unlock(&driver->diag_cntl_mutex);
 }
 
+static int diag_check_client
+(
+	int cmd_code,
+	int subsys_id,
+	uint16_t subsys_cmd_code,
+	unsigned char *buf,
+	int len
+)
+{
+	int	i, ret = 1;
+	int data_type;
+
+	data_type = APPS_DATA;
+	/* Dont send any command other than mode reset */
+	if (chk_apps_master() && cmd_code == MODE_CMD) {
+		if (subsys_id != RESET_ID)
+			data_type = MODEM_DATA;
+	}
+
+	pr_debug("diag: %d %d %d", cmd_code, subsys_id, subsys_cmd_code);
+	for (i = 0; i < diag_max_reg; i++) {
+		entry = driver->table[i];
+		if (entry.process_id != NO_PROCESS) {
+			if (entry.cmd_code == cmd_code && entry.subsys_id ==
+				 subsys_id && entry.cmd_code_lo <=
+							 subsys_cmd_code &&
+				  entry.cmd_code_hi >= subsys_cmd_code) {
+				diag_send_data(entry, buf, len, data_type);
+				ret = 0;
+			} else if (entry.cmd_code == 255
+				  && cmd_code == 75) {
+				if (entry.subsys_id ==
+					subsys_id &&
+				   entry.cmd_code_lo <=
+					subsys_cmd_code &&
+					 entry.cmd_code_hi >=
+					subsys_cmd_code) {
+					diag_send_data(entry, buf, len,
+								 data_type);
+					ret = 0;
+				}
+			} else if (entry.cmd_code == 255 &&
+				  entry.subsys_id == 255) {
+				if (entry.cmd_code_lo <=
+						 cmd_code &&
+						 entry.
+						cmd_code_hi >= cmd_code) {
+					diag_send_data(entry, buf, len,
+								 data_type);
+					ret = 0;
+				}
+			}
+		}
+	}
+	return ret;
+}
+
 static int diag_process_apps_pkt(unsigned char *buf, int len)
 {
 	uint16_t subsys_cmd_code;
@@ -1028,44 +1095,52 @@ static int diag_process_apps_pkt(unsigned char *buf, int len)
 	temp++;
 	subsys_cmd_code = *(uint16_t *)temp;
 	temp += 2;
-	data_type = APPS_DATA;
-	/* Dont send any command other than mode reset */
-	if (chk_apps_master() && cmd_code == MODE_CMD) {
-		if (subsys_id != RESET_ID)
-			data_type = MODEM_DATA;
-	}
 
-	pr_debug("diag: %d %d %d", cmd_code, subsys_id, subsys_cmd_code);
-	for (i = 0; i < diag_max_reg; i++) {
-		entry = driver->table[i];
-		if (entry.process_id != NO_PROCESS) {
-			if (entry.cmd_code == cmd_code && entry.subsys_id ==
-				 subsys_id && entry.cmd_code_lo <=
-							 subsys_cmd_code &&
-				  entry.cmd_code_hi >= subsys_cmd_code) {
-				diag_send_data(entry, buf, len, data_type);
-				packet_type = 0;
-			} else if (entry.cmd_code == 255
-				  && cmd_code == 75) {
-				if (entry.subsys_id ==
-					subsys_id &&
-				   entry.cmd_code_lo <=
-					subsys_cmd_code &&
-					 entry.cmd_code_hi >=
-					subsys_cmd_code) {
-					diag_send_data(entry, buf, len,
-								 data_type);
+	if (g_b_mode == D_DIAG_B_MODE) {
+		packet_type = 0;
+		if (subsys_cmd_code == D_DIAG_MODE_CMD) {
+			packet_type = diag_check_client(cmd_code, subsys_id, subsys_cmd_code, buf, len);
+		}
+	} else {
+		data_type = APPS_DATA;
+		/* Dont send any command other than mode reset */
+		if (chk_apps_master() && cmd_code == MODE_CMD) {
+			if (subsys_id != RESET_ID)
+				data_type = MODEM_DATA;
+		}
+	
+		pr_debug("diag: %d %d %d", cmd_code, subsys_id, subsys_cmd_code);
+		for (i = 0; i < diag_max_reg; i++) {
+			entry = driver->table[i];
+			if (entry.process_id != NO_PROCESS) {
+				if (entry.cmd_code == cmd_code && entry.subsys_id ==
+					 subsys_id && entry.cmd_code_lo <=
+								 subsys_cmd_code &&
+					  entry.cmd_code_hi >= subsys_cmd_code) {
+					diag_send_data(entry, buf, len, data_type);
 					packet_type = 0;
-				}
-			} else if (entry.cmd_code == 255 &&
-				  entry.subsys_id == 255) {
-				if (entry.cmd_code_lo <=
-						 cmd_code &&
-						 entry.
-						cmd_code_hi >= cmd_code) {
-					diag_send_data(entry, buf, len,
-								 data_type);
-					packet_type = 0;
+				} else if (entry.cmd_code == 255
+					  && cmd_code == 75) {
+					if (entry.subsys_id ==
+						subsys_id &&
+					   entry.cmd_code_lo <=
+						subsys_cmd_code &&
+						 entry.cmd_code_hi >=
+						subsys_cmd_code) {
+						diag_send_data(entry, buf, len,
+									 data_type);
+						packet_type = 0;
+					}
+				} else if (entry.cmd_code == 255 &&
+					  entry.subsys_id == 255) {
+					if (entry.cmd_code_lo <=
+							 cmd_code &&
+							 entry.
+							cmd_code_hi >= cmd_code) {
+						diag_send_data(entry, buf, len,
+									 data_type);
+						packet_type = 0;
+					}
 				}
 			}
 		}
@@ -1607,7 +1682,8 @@ static void diag_smd_notify(void *ctxt, unsigned event)
 		driver->ch = 0;
 		return;
 	} else if (event == SMD_EVENT_OPEN) {
-		driver->ch = ch_temp;
+		if (ch_temp)
+			driver->ch = ch_temp;
 	}
 	queue_work(driver->diag_wq, &(driver->diag_read_smd_work));
 }
@@ -1621,7 +1697,8 @@ static void diag_smd_qdsp_notify(void *ctxt, unsigned event)
 		driver->chqdsp = 0;
 		return;
 	} else if (event == SMD_EVENT_OPEN) {
-		driver->chqdsp = chqdsp_temp;
+		if (chqdsp_temp)
+			driver->chqdsp = chqdsp_temp;
 	}
 	queue_work(driver->diag_wq, &(driver->diag_read_smd_qdsp_work));
 }
@@ -1635,7 +1712,8 @@ static void diag_smd_wcnss_notify(void *ctxt, unsigned event)
 		driver->ch_wcnss = 0;
 		return;
 	} else if (event == SMD_EVENT_OPEN) {
-		driver->ch_wcnss = ch_wcnss_temp;
+		if (ch_wcnss_temp)
+			driver->ch_wcnss = ch_wcnss_temp;
 	}
 	queue_work(driver->diag_wq, &(driver->diag_read_smd_wcnss_work));
 }

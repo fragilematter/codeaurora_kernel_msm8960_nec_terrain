@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef MDP_H
 #define MDP_H
@@ -86,6 +90,10 @@ struct mdp_table_entry {
 extern struct mdp_ccs mdp_ccs_yuv2rgb ;
 extern struct mdp_ccs mdp_ccs_rgb2yuv ;
 extern unsigned char hdmi_prim_display;
+
+/* ADD-S S_DRV_LCD */
+extern MSM_FB_REQUEST_FLAG mdp4_overlay_argb_enable;    /* enable ARGB alpha */
+/* ADD-E S_DRV_LCD */
 
 /*
  * MDP Image Structure
@@ -837,4 +845,9 @@ static inline void mdp_vid_quant_set(void)
 	/* empty */
 }
 #endif
+
+/* ADD-S S-DRV-LCD For CameraDiag */
+void mdp_mddi_dma_s_stop(int dma_flg);
+/* ADD-E S-DRV-LCD For CameraDiag */
+
 #endif /* MDP_H */

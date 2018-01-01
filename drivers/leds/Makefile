@@ -49,6 +49,11 @@ obj-$(CONFIG_LEDS_ASIC3)		+= leds-asic3.o
 obj-$(CONFIG_LEDS_PMIC8058)		+= leds-pmic8058.o
 obj-$(CONFIG_LEDS_QCIBL)		+= leds-qci-backlight.o
 obj-$(CONFIG_LEDS_MSM_PDM)		+= leds-msm-pdm.o
+obj-$(CONFIG_LEDS_ADP8861)		+= leds-adp8861.o
+obj-$(CONFIG_LEDS_LM3532)		+= leds-lm3532.o
+obj-$(CONFIG_LEDS_LM3537)		+= leds-lm3537.o
+obj-$(CONFIG_LEDS_DIAG_WRAPPER)	+= leds-diag_wrapper.o
+obj-$(CONFIG_LEDS_ADP8861_ILLUMI)	+= leds-data_input.o
 
 # LED SPI Drivers
 obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o
@@ -60,4 +65,8 @@ obj-$(CONFIG_LEDS_TRIGGER_HEARTBEAT)	+= ledtrig-heartbeat.o
 obj-$(CONFIG_LEDS_TRIGGER_BACKLIGHT)	+= ledtrig-backlight.o
 obj-$(CONFIG_LEDS_TRIGGER_GPIO)		+= ledtrig-gpio.o
 obj-$(CONFIG_LEDS_TRIGGER_DEFAULT_ON)	+= ledtrig-default-on.o
-obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
+ifeq ($(TARGET_BUILD_VARIANT),userdebug)
+	obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
+	obj-$(CONFIG_LEDS_TRIGGER_CXO_OFF)	+= ledtrig-cxo-off.o
+endif
+

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include "vidc.h"
 #include "vidc_hwio.h"
@@ -407,8 +411,15 @@ void vidc_1080p_set_mpeg4_encode_work_buffers(u32 skip_flag_buffer_offset,
 
 void vidc_1080p_set_encode_frame_size(u32 hori_size, u32 vert_size)
 {
+
+  u32 new_vert_size = vert_size;
+
+  if(hori_size == 1920 && vert_size == 1088)
+    new_vert_size = 1080;
+
 	VIDC_HWIO_OUT(REG_934655, hori_size);
-	VIDC_HWIO_OUT(REG_179070, vert_size);
+	VIDC_HWIO_OUT(REG_179070, new_vert_size);
+
 }
 
 void vidc_1080p_set_encode_profile_level(u32 encode_profile, u32 enc_level)

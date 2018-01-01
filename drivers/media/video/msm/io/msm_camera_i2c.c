@@ -9,8 +9,70 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include "msm_camera_i2c.h"
+
+static unsigned char g_i2c_error_cause = 0;
+static unsigned char g_i2c_event_id = 0;
+        uint8_t buf_burst[3100];
+
+static void msm_camera_i2c_alarm_watch(int32_t cause, uint16_t saddr , unsigned char *data, int direction)
+{
+    unsigned char event_id    = 0x00;   /* Event ID */
+    unsigned char error_info  = 0x00;   /* Error Info */
+    unsigned char error_cause = 0x00;   /* Error Cause */
+
+    /* ERROR INFO */
+    if( direction == 1){
+        /* TX */
+        error_info = 0x09;
+    } else {
+        /* RX */
+        error_info = 0x0A;
+    }
+
+    /* EVENT ID */
+#ifdef CONFIG_S5K4ECGX
+    if(saddr == 0x2D){
+        event_id = 0x6F;   /* BACK CAMERA */
+    }
+#endif
+
+#ifdef CONFIG_IMX111_ACT
+    if(saddr == 0x0C){
+        event_id = 0x6F;   /* BACK CAMERA */
+    }
+#endif
+
+#ifdef CONFIG_MT9M113
+    if(saddr == 0x3D){
+        event_id = 0x6B;   /* FRONT CAMERA */
+    }
+#endif
+
+#ifdef CONFIG_MT9V113
+    if(saddr == 0x3D){
+        event_id = 0x6B;   /* FRONT CAMERA */
+    }
+#endif
+
+    /* ERROR CAUSE */
+    error_cause = ( unsigned char )( cause * -1 );
+
+    if ( (g_i2c_error_cause != error_cause) || (g_i2c_event_id != event_id))
+    {        
+        /* PRINT ALARM */
+        printk( KERN_ERR "[T][ARM]Event:0x%02X Info:0x%02X%02X%02X%02X",
+                          event_id, error_info, error_cause, data[0], data[1] );
+
+        g_i2c_error_cause = error_cause;
+        g_i2c_event_id = event_id;
+    }
+}
 
 int32_t msm_camera_i2c_rxdata(struct msm_camera_i2c_client *dev_client,
 	unsigned char *rxdata, int data_length)
@@ -33,7 +95,10 @@ int32_t msm_camera_i2c_rxdata(struct msm_camera_i2c_client *dev_client,
 	};
 	rc = i2c_transfer(dev_client->client->adapter, msgs, 2);
 	if (rc < 0)
+    {
 		S_I2C_DBG("msm_camera_i2c_rxdata failed 0x%x\n", saddr);
+        msm_camera_i2c_alarm_watch(rc,saddr,rxdata,2);
+    }
 	return rc;
 }
 
@@ -52,8 +117,14 @@ int32_t msm_camera_i2c_txdata(struct msm_camera_i2c_client *dev_client,
 	};
 	rc = i2c_transfer(dev_client->client->adapter, msg, 1);
 	if (rc < 0)
+    {
 		S_I2C_DBG("msm_camera_i2c_txdata faild 0x%x\n", saddr);
-	return 0;
+        msm_camera_i2c_alarm_watch(rc,saddr,txdata,1);
+    }
+    else{
+        rc = 0;
+    }
+    return rc;
 }
 
 int32_t msm_camera_i2c_write(struct msm_camera_i2c_client *client,
@@ -106,7 +177,7 @@ int32_t msm_camera_i2c_write_seq(struct msm_camera_i2c_client *client,
 {
 	int32_t rc = -EFAULT;
 	unsigned char buf[client->addr_type+num_byte];
-	uint8_t len = 0, i = 0;
+	uint16_t len = 0, i = 0;
 
 	if ((client->addr_type != MSM_CAMERA_I2C_BYTE_ADDR
 		&& client->addr_type != MSM_CAMERA_I2C_WORD_ADDR)
@@ -131,7 +202,6 @@ int32_t msm_camera_i2c_write_seq(struct msm_camera_i2c_client *client,
 		S_I2C_DBG("Byte %d: 0x%x\n", i+len, buf[i+len]);
 		S_I2C_DBG("Data: 0x%x\n", data[i]);
 	}
-
 	rc = msm_camera_i2c_txdata(client, buf, len+num_byte);
 	if (rc < 0)
 		S_I2C_DBG("%s fail\n", __func__);
@@ -246,10 +316,11 @@ int32_t msm_camera_i2c_write_tbl(struct msm_camera_i2c_client *client,
 	struct msm_camera_i2c_reg_conf *reg_conf_tbl, uint16_t size,
 	enum msm_camera_i2c_data_type data_type)
 {
-	int i;
+	uint16_t  i,len=0;
 	int32_t rc = -EFAULT;
 	for (i = 0; i < size; i++) {
 		enum msm_camera_i2c_data_type dt;
+                len = 0;
 		if (reg_conf_tbl->cmd_type == MSM_CAMERA_I2C_CMD_POLL) {
 			rc = msm_camera_i2c_poll(client, reg_conf_tbl->reg_addr,
 				reg_conf_tbl->reg_data, reg_conf_tbl->dt);
@@ -262,10 +333,42 @@ int32_t msm_camera_i2c_write_tbl(struct msm_camera_i2c_client *client,
 			switch (dt) {
 			case MSM_CAMERA_I2C_BYTE_DATA:
 			case MSM_CAMERA_I2C_WORD_DATA:
-				rc = msm_camera_i2c_write(
-					client,
-					reg_conf_tbl->reg_addr,
-					reg_conf_tbl->reg_data, dt);
+                                 len=0;
+                                 memset(&buf_burst,0,3100);
+                                 if(client->client->addr >> 1 == 0x2D) {
+                                //Client id is main camera
+
+                                //Store data in temp buf
+                                buf_burst[len++] = (reg_conf_tbl->reg_data >> BITS_PER_BYTE) & 0xFF;
+                                buf_burst[len++] = reg_conf_tbl->reg_data & 0xFF;
+                                if(reg_conf_tbl->reg_addr == 0x0F12 && (reg_conf_tbl+1)->reg_addr == 0x0F12  ) {
+                                    reg_conf_tbl++;
+                                    i++;
+                                    while((reg_conf_tbl)->reg_addr == 0x0F12) {
+                                         //Store data in temp buf_burst
+                                        buf_burst[len++] = (reg_conf_tbl->reg_data >> BITS_PER_BYTE) & 0xFF;
+                                        buf_burst[len++] = reg_conf_tbl->reg_data & 0xFF;
+				        reg_conf_tbl++;
+                                        i++;
+                                    }
+                                    reg_conf_tbl--;
+                                    i--;
+                                }
+                                if(len > 2)
+				   rc = msm_camera_i2c_write_seq(
+				           client,
+					   reg_conf_tbl->reg_addr,
+					   buf_burst, len);
+                                else
+                                   rc = msm_camera_i2c_write(
+				           client,
+				           reg_conf_tbl->reg_addr,
+				           reg_conf_tbl->reg_data, dt);
+                           } else
+                                   rc = msm_camera_i2c_write(
+				           client,
+				           reg_conf_tbl->reg_addr,
+				           reg_conf_tbl->reg_data, dt);
 				break;
 			case MSM_CAMERA_I2C_SET_BYTE_MASK:
 				rc = msm_camera_i2c_set_mask(client,

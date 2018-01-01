@@ -13,6 +13,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #ifndef __ARCH_ARM_MACH_MSM_DEVICES_H
 #define __ARCH_ARM_MACH_MSM_DEVICES_H
@@ -48,15 +52,22 @@ extern struct platform_device msm_device_uart_dm3;
 extern struct platform_device msm_device_uart_dm12;
 extern struct platform_device *msm_device_uart_gsbi9;
 extern struct platform_device msm_device_uart_dm6;
+#if defined(CONFIG_FEATURE_NCMC_FELICA) || defined(CONFIG_FEATURE_NCMC_IRDA)
+extern struct platform_device msm_device_gsbi10_uart_dm;
+#endif
 
 extern struct platform_device msm8960_device_uart_gsbi2;
 extern struct platform_device msm8960_device_uart_gsbi5;
+extern struct platform_device msm8960_device_ssbi_pm8921;
 extern struct platform_device msm8960_device_ssbi_pmic;
+
+extern struct platform_device msm8960_device_qup_i2c_gsbi2;
 extern struct platform_device msm8960_device_qup_i2c_gsbi3;
 extern struct platform_device msm8960_device_qup_i2c_gsbi4;
-extern struct platform_device msm8960_device_qup_i2c_gsbi10;
+extern struct platform_device msm8960_device_qup_i2c_gsbi8;
+extern struct platform_device msm8960_device_qup_i2c_gsbi11;
 extern struct platform_device msm8960_device_qup_i2c_gsbi12;
-extern struct platform_device msm8960_device_qup_spi_gsbi1;
+extern struct platform_device msm8960_device_qup_spi_gsbi9;
 extern struct platform_device msm8960_gemini_device;
 extern struct platform_device msm8960_device_csiphy0;
 extern struct platform_device msm8960_device_csiphy1;
@@ -119,6 +130,7 @@ extern struct platform_device msm_gsbi4_qup_i2c_device;
 extern struct platform_device msm_gsbi7_qup_i2c_device;
 extern struct platform_device msm_gsbi8_qup_i2c_device;
 extern struct platform_device msm_gsbi9_qup_i2c_device;
+extern struct platform_device msm_gsbi11_qup_i2c_device;
 extern struct platform_device msm_gsbi12_qup_i2c_device;
 
 extern struct platform_device msm_slim_ctrl;

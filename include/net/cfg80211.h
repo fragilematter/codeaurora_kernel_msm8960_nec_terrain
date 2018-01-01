@@ -9,6 +9,10 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/netdevice.h>
 #include <linux/debugfs.h>
@@ -2376,6 +2380,21 @@ const u8 *cfg80211_find_ie(u8 eid, const u8 *ies, int len);
 extern int regulatory_hint(struct wiphy *wiphy, const char *alpha2);
 
 /**
+ * regulatory_hint - driver hint to the wireless core a regulatory domain
+ * @wiphy: the wireless device giving the hint (used only for reporting
+ *	conflicts)
+ * @alpha2: the ISO/IEC 3166 alpha2 the driver claims its regulatory domain
+ * 	should be in. If @rd is set this should be NULL. Note that if you
+ * 	set this to NULL you should still set rd->alpha2 to some accepted
+ * 	alpha2.
+ *
+ * Drivers should check the return value, its possible you can get
+ * an -ENOMEM.
+ */
+#define SUPPORT_REGULATORY_HINT_FCC
+extern int regulatory_hint_fcc(struct wiphy *wiphy, const char *alpha2);
+
+/**
  * wiphy_apply_custom_regulatory - apply a custom driver regulatory domain
  * @wiphy: the wireless device we want to process the regulatory domain on
  * @regd: the custom regulatory domain to use for this wiphy
@@ -3017,6 +3036,14 @@ void cfg80211_remain_on_channel_expired(struct net_device *dev,
 					enum nl80211_channel_type channel_type,
 					gfp_t gfp);
 
+/**
+ * cfg80211_max_sta_notify - notify userspace about max station exceeded
+ *
+ * @dev: the netdev
+ * @mac_addr: the station's address
+ * @gfp: allocation flags
+ */
+void cfg80211_max_sta_notify(struct net_device *dev, const u8 *mac_addr, gfp_t gfp);
 
 /**
  * cfg80211_new_sta - notify userspace about station

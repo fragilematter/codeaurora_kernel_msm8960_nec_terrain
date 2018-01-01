@@ -8,6 +8,10 @@
  * the Free Software Foundation; either version 2 of the License, or (at
  * your option) any later version.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -315,6 +319,11 @@ int mmc_sd_switch(struct mmc_card *card, int mode, int group,
 
 	mode = !!mode;
 	value &= 0xF;
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	/* delay before CMD6 */
+	mdelay(5);
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 	mrq.cmd = &cmd;
 	mrq.data = &data;

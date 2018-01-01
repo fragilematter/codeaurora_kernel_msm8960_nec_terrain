@@ -13,6 +13,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/types.h>
@@ -51,6 +55,33 @@ static ssize_t enable_store(
 
 static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, enable_show, enable_store);
 
+static ssize_t vibvolt_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct timed_output_dev *tdev = dev_get_drvdata(dev);
+	int remaining = tdev->get_volt(tdev);
+
+	return sprintf(buf, "%d\n", remaining);
+}
+
+static ssize_t vibvolt_store(
+		struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t size)
+{
+	struct timed_output_dev *tdev = dev_get_drvdata(dev);
+	int value;
+
+	if (sscanf(buf, "%d", &value) != 1)
+		return -EINVAL;
+
+	if(tdev->set_volt(tdev, value)){
+		return -EINVAL;		/* Value is out of range */
+	}
+	return size;
+}
+
+static DEVICE_ATTR(vibvolt, S_IRUGO | S_IWUSR, vibvolt_show, vibvolt_store);
+
 static int create_timed_output_class(void)
 {
 	if (!timed_output_class) {
@@ -83,7 +114,9 @@ int timed_output_dev_register(struct timed_output_dev *tdev)
 	ret = device_create_file(tdev->dev, &dev_attr_enable);
 	if (ret < 0)
 		goto err_create_file;
-
+	ret = device_create_file(tdev->dev, &dev_attr_vibvolt);
+	if (ret < 0)
+		goto err_create_file;
 	dev_set_drvdata(tdev->dev, tdev);
 	tdev->state = 0;
 	return 0;
@@ -100,6 +133,7 @@ EXPORT_SYMBOL_GPL(timed_output_dev_register);
 void timed_output_dev_unregister(struct timed_output_dev *tdev)
 {
 	device_remove_file(tdev->dev, &dev_attr_enable);
+	device_remove_file(tdev->dev, &dev_attr_vibvolt);
 	device_destroy(timed_output_class, MKDEV(0, tdev->index));
 	dev_set_drvdata(tdev->dev, NULL);
 }

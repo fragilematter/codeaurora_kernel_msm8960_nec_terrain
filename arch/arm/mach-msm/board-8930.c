@@ -10,6 +10,11 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
@@ -872,7 +877,7 @@ static void __init msm8930_init_buses(void)
 #endif
 }
 
-static struct msm_spi_platform_data msm8960_qup_spi_gsbi1_pdata = {
+static struct msm_spi_platform_data msm8960_qup_spi_gsbi9_pdata = {
 	.max_clock_speed = 15060000,
 };
 
@@ -1776,10 +1781,10 @@ static struct platform_device *common_devices[] __initdata = {
 	&msm_8960_riva,
 	&msm_pil_tzapps,
 	&msm_pil_vidc,
-	&msm8960_device_qup_spi_gsbi1,
 	&msm8960_device_qup_i2c_gsbi3,
 	&msm8960_device_qup_i2c_gsbi4,
-	&msm8960_device_qup_i2c_gsbi10,
+	&msm8960_device_qup_spi_gsbi9,
+	&msm8960_device_qup_i2c_gsbi8,
 	&msm8960_device_qup_i2c_gsbi12,
 	&msm_slim_ctrl,
 	&msm_device_wcnss_wlan,
@@ -1892,8 +1897,10 @@ static void __init msm8930_i2c_init(void)
 	msm8960_device_qup_i2c_gsbi3.dev.platform_data =
 					&msm8960_i2c_qup_gsbi3_pdata;
 
-	msm8960_device_qup_i2c_gsbi10.dev.platform_data =
+
+	msm8960_device_qup_i2c_gsbi8.dev.platform_data =
 					&msm8960_i2c_qup_gsbi10_pdata;
+
 
 	msm8960_device_qup_i2c_gsbi12.dev.platform_data =
 					&msm8960_i2c_qup_gsbi12_pdata;
@@ -2189,8 +2196,8 @@ static void __init msm8930_cdp_init(void)
 	msm8960_device_otg.dev.platform_data = &msm_otg_pdata;
 	msm_device_hsic_host.dev.platform_data = &msm_hsic_pdata;
 	msm8930_init_gpiomux();
-	msm8960_device_qup_spi_gsbi1.dev.platform_data =
-				&msm8960_qup_spi_gsbi1_pdata;
+	msm8960_device_qup_spi_gsbi9.dev.platform_data =
+				&msm8960_qup_spi_gsbi9_pdata;
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
 
 	/*

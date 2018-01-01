@@ -29,6 +29,11 @@
  *     MA 02111-1307 USA
  *
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <asm/byteorder.h>
 
@@ -320,6 +325,21 @@ void irda_init_max_qos_capabilies(struct qos_info *qos)
 	sysctl_max_noreply_time = index_value(i, link_disc_times);
 
 	/* LSB is first byte, MSB is second byte */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+	qos->baud_rate.bits    &= 0x003e;
+							/* IR_9600     0x02 */
+							/* IR_19200    0x04 */
+							/* IR_38400    0x08 */
+							/* IR_57600    0x10 */
+							/* IR_115200   0x20 */
+
+	qos->window_size.bits     = 0x01; /* 1 frame */
+	qos->min_turn_time.bits   = 0x07;
+	qos->max_turn_time.bits   = 0x01;
+	qos->data_size.bits       = 0x3f;
+	qos->link_disc_time.bits &= 0x03;
+	qos->additional_bofs.bits = 0x80;
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 	qos->baud_rate.bits    &= 0x03ff;
 
 	qos->window_size.bits     = 0x7f;
@@ -328,6 +348,7 @@ void irda_init_max_qos_capabilies(struct qos_info *qos)
 	qos->data_size.bits       = 0x3f;
 	qos->link_disc_time.bits &= 0xff;
 	qos->additional_bofs.bits = 0xff;
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 }
 EXPORT_SYMBOL(irda_init_max_qos_capabilies);
 

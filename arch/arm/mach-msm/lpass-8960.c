@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
@@ -31,6 +35,16 @@
 
 #define SCM_Q6_NMI_CMD                  0x1
 #define MODULE_NAME			"lpass_8960"
+
+#define OEM_NCMC_FATAL_MODE_INIT    0x494E4954
+#define OEM_NCMC_FATAL_MODE_APPS    0x41505053
+#define OEM_NCMC_FATAL_MODE_MODEM   0x6D6F6431
+#define OEM_NCMC_FATAL_MODE_DSP     0x64737073
+#define OEM_NCMC_FATAL_MODE_LPASS   0x4C704173
+#define OEM_NCMC_FATAL_MODE_RIVA    0x52495641
+#define OEM_NCMC_FATAL_MODE_ERR     0x65727258
+
+int ncmc_set_fatal_mode(int mode);
 
 /* Subsystem restart: QDSP6 data, functions */
 static void lpass_fatal_fn(struct work_struct *);
@@ -68,12 +82,15 @@ static void lpass_fatal_fn(struct work_struct *work)
 {
 	pr_err("%s %s: Watchdog bite received from Q6!\n", MODULE_NAME,
 		__func__);
-	panic(MODULE_NAME ": Resetting the SoC");
+    printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x05");
+    subsystem_restart("lpass");
 }
 
 static void lpass_smsm_state_cb(void *data, uint32_t old_state,
 				uint32_t new_state)
 {
+    int retmode = OEM_NCMC_FATAL_MODE_INIT;
+
 	/* Ignore if we're the one that set SMSM_RESET */
 	if (q6_crash_shutdown)
 		return;
@@ -82,7 +99,15 @@ static void lpass_smsm_state_cb(void *data, uint32_t old_state,
 		pr_err("%s: LPASS SMSM state changed to SMSM_RESET,"
 			" new_state = 0x%x, old_state = 0x%x\n", __func__,
 			new_state, old_state);
-		panic(MODULE_NAME ": Resetting the SoC");
+        retmode = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_LPASS );
+        if ( retmode == OEM_NCMC_FATAL_MODE_ERR )
+        {
+            pr_err( "%s: fatal mode error \n", __func__ );
+            return;
+        }
+
+        printk(KERN_ERR "[T][ARM]Event:0x3C Info:0x05");
+		subsystem_restart("lpass");
 	}
 }
 
@@ -137,10 +162,24 @@ static void lpass_crash_shutdown(const struct subsys_data *subsys)
 static irqreturn_t lpass_wdog_bite_irq(int irq, void *dev_id)
 {
 	int ret;
+    int retmode = OEM_NCMC_FATAL_MODE_INIT;
+    struct work_struct  work;
+
+    retmode = ncmc_set_fatal_mode( OEM_NCMC_FATAL_MODE_LPASS ) ;
+    if ( retmode == OEM_NCMC_FATAL_MODE_ERR )
+    {
+        pr_err( "%s: fatal mode error \n", __func__ );
+        return IRQ_HANDLED;
+    }
 
 	pr_debug("%s: rxed irq[0x%x]", __func__, irq);
 	disable_irq_nosync(LPASS_Q6SS_WDOG_EXPIRED);
 	ret = schedule_work(&lpass_fatal_work);
+    if ( !ret )
+    {
+        pr_err( "%s: schedule_work err ret =%d \n", __func__, ret );
+        lpass_fatal_fn( &work );
+    }
 
 	return IRQ_HANDLED;
 }

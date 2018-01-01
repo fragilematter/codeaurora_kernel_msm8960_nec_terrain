@@ -13,6 +13,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 /* Acknowledgements:
  * This file is based on msm_serial.c, originally
@@ -124,7 +128,11 @@ static struct of_device_id msm_hsl_match_table[] = {
 };
 static struct dentry *debug_base;
 static inline void wait_for_xmitr(struct uart_port *port);
+
+#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
 static int get_console_state(struct uart_port *port);
+#endif
+
 static inline void msm_hsl_write(struct uart_port *port,
 				 unsigned int val, unsigned int off)
 {
@@ -1091,7 +1099,15 @@ static void dump_hsl_regs(struct uart_port *port)
 {
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
 	unsigned int vid = msm_hsl_port->ver_id;
+
+#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
 	unsigned int sr, isr, mr1, mr2, ncf, txfs, rxfs, con_state;
+#endif
+
+
+
+	unsigned int sr, isr, mr1, mr2, ncf, txfs, rxfs;
+
 
 	sr = msm_hsl_read(port, regmap[vid][UARTDM_SR]);
 	isr = msm_hsl_read(port, regmap[vid][UARTDM_ISR]);
@@ -1100,7 +1116,11 @@ static void dump_hsl_regs(struct uart_port *port)
 	ncf = msm_hsl_read(port, regmap[vid][UARTDM_NCF_TX]);
 	txfs = msm_hsl_read(port, regmap[vid][UARTDM_TXFS]);
 	rxfs = msm_hsl_read(port, regmap[vid][UARTDM_RXFS]);
+
+#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
 	con_state = get_console_state(port);
+#endif
+
 
 	msm_hsl_console_state[0] = sr;
 	msm_hsl_console_state[1] = isr;
@@ -1109,7 +1129,11 @@ static void dump_hsl_regs(struct uart_port *port)
 	msm_hsl_console_state[4] = ncf;
 	msm_hsl_console_state[5] = txfs;
 	msm_hsl_console_state[6] = rxfs;
+
+#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
 	msm_hsl_console_state[7] = con_state;
+#endif
+
 
 	pr_info("%s(): Timeout: %d uS\n", __func__, msm_hsl_port->tx_timeout);
 	pr_info("%s(): SR:  %08x\n", __func__, sr);
@@ -1119,7 +1143,12 @@ static void dump_hsl_regs(struct uart_port *port)
 	pr_info("%s(): NCF: %08x\n", __func__, ncf);
 	pr_info("%s(): TXFS: %08x\n", __func__, txfs);
 	pr_info("%s(): RXFS: %08x\n", __func__, rxfs);
+
+#ifdef CONFIG_SERIAL_MSM_HSL_CONSOLE
 	pr_info("%s(): Console state: %d\n", __func__, con_state);
+#endif
+
+
 }
 
 /*

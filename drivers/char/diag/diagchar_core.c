@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/slab.h>
 #include <linux/init.h>
@@ -70,6 +74,9 @@ void *buf_hdlc;
 module_param(itemsize, uint, 0);
 module_param(poolsize, uint, 0);
 module_param(max_clients, uint, 0);
+
+#define DIAG_IOCTL_DD_DIAG_ONOFF 	619
+extern int	g_b_mode;
 
 /* delayed_rsp_id 0 represents no delay in the response. Any other number
     means that the diag packet has a delayed response. */
@@ -451,6 +458,10 @@ long diagchar_ioctl(struct file *filp,
 					 driver->logging_mode == USB_MODE)
 				diagfwd_connect();
 #endif /* DIAG over USB */
+		success = 1;
+	} else if (iocmd == DIAG_IOCTL_DD_DIAG_ONOFF) {
+		printk("***** DIAG MODE[%02X] *****\n", (int)ioarg);
+		g_b_mode = (int)ioarg;
 		success = 1;
 	}
 

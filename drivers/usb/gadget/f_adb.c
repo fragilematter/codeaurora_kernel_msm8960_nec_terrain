@@ -15,6 +15,13 @@
  *
  */
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+/**************************************************/
+/* Modified by                                    */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2012 */
+/**************************************************/
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/poll.h>
@@ -26,6 +33,10 @@
 #include <linux/types.h>
 #include <linux/device.h>
 #include <linux/miscdevice.h>
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+#include <linux/usb/oem_usb_common.h>
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 #define ADB_BULK_BUFFER_SIZE           4096
 
@@ -56,6 +67,26 @@ struct adb_dev {
 	struct usb_request *rx_req;
 	int rx_done;
 };
+
+#ifdef CONFIG_FEATURE_NCMC_USB
+/* String IDs */
+#define INTERFACE_STRING_INDEX	0
+
+static struct usb_string adb_string_defs[] = {
+	[INTERFACE_STRING_INDEX].s	= NCMC_USB_IF_DESC_NAME_ADB,
+	{  },	/* end of list */
+};
+
+static struct usb_gadget_strings adb_string_table = {
+	.language		= 0x0409,	/* en-US */
+	.strings		= adb_string_defs,
+};
+
+static struct usb_gadget_strings *adb_strings[] = {
+	&adb_string_table,
+	NULL,
+};
+#endif /* CONFIG_FEATURE_NCMC_USB */
 
 static struct usb_interface_descriptor adb_interface_desc = {
 	.bLength                = USB_DT_INTERFACE_SIZE,
@@ -551,11 +582,33 @@ static void adb_function_disable(struct usb_function *f)
 static int adb_bind_config(struct usb_configuration *c)
 {
 	struct adb_dev *dev = _adb_dev;
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+	int		status;
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 
 	printk(KERN_INFO "adb_bind_config\n");
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+	if (adb_string_defs[INTERFACE_STRING_INDEX].id == 0) {
+		status = usb_string_id(c->cdev);
+		if (status < 0)
+			return status;
+		adb_string_defs[INTERFACE_STRING_INDEX].id = status;
+		adb_interface_desc.iInterface = status;
+	}
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
+
 	dev->cdev = c->cdev;
 	dev->function.name = "adb";
+#ifdef CONFIG_FEATURE_NCMC_USB
+
+	dev->function.strings = adb_strings;
+
+#endif /*CONFIG_FEATURE_NCMC_USB*/
 	dev->function.descriptors = fs_adb_descs;
 	dev->function.hs_descriptors = hs_adb_descs;
 	dev->function.bind = adb_function_bind;

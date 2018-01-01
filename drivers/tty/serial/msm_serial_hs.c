@@ -29,6 +29,10 @@
  * always be lost. RTS will be asserted even while the UART is off in this mode
  * of operation. See msm_serial_hs_platform_data.rx_wakeup_irq.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 
@@ -1482,6 +1486,77 @@ static irqreturn_t msm_hs_isr(int irq, void *dev)
 
 	return IRQ_HANDLED;
 }
+
+
+#if defined(CONFIG_FEATURE_NCMC_IRDA)
+void msm_hs_disable_rx_locked(struct uart_port *uport)
+{
+	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
+//	unsigned int data;
+	unsigned int rx_count;
+
+	printk(KERN_INFO "%s() \n", __func__);
+
+	clk_enable(msm_uport->clk);
+
+
+	msm_hs_write(uport, UARTDM_CR_ADDR, UARTDM_CR_RX_DISABLE_BMSK);
+
+	rx_count = msm_hs_read(uport, UARTDM_RX_TOTAL_SNAP_ADDR);
+	printk(KERN_INFO "%s() rx_count=%d\n", __func__, rx_count);
+
+	clk_disable(msm_uport->clk);
+}
+
+/* Start to receive the next chunk of data */
+void msm_hs_enable_rx_locked(struct uart_port *uport)
+{
+	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
+	unsigned int buffer_pending = msm_uport->rx.buffer_pending;
+
+	unsigned int rx_count;
+
+	printk(KERN_INFO "%s() \n", __func__);
+
+	msm_uport->rx.buffer_pending = 0;
+	if (buffer_pending && hs_serial_debug_mask)
+		printk(KERN_ERR "Error: rx started in buffer state = %x",
+		       buffer_pending);
+
+	msm_hs_write(uport, UARTDM_IMR_ADDR, 0);
+
+	msm_hs_write(uport, UARTDM_CR_ADDR, UARTDM_CR_RX_EN_BMSK);
+
+	msm_hs_write(uport, UARTDM_CR_ADDR, RESET_RX);
+	msm_hs_write(uport, UARTDM_CR_ADDR, RESET_STALE_INT);
+	msm_hs_write(uport, UARTDM_DMRX_ADDR, UARTDM_RX_BUF_SIZE);
+	msm_hs_write(uport, UARTDM_CR_ADDR, STALE_EVENT_ENABLE);
+//	msm_uport->imr_reg |= UARTDM_ISR_RXLEV_BMSK;
+	msm_hs_write(uport, UARTDM_IMR_ADDR, msm_uport->imr_reg);
+
+//	msm_uport->rx.flush = FLUSH_NONE;
+//	msm_dmov_enqueue_cmd(msm_uport->dma_rx_channel, &msm_uport->rx.xfer);
+
+	rx_count = msm_hs_read(uport, UARTDM_RX_TOTAL_SNAP_ADDR);
+	printk(KERN_INFO "%s() rx_count=%d\n", __func__, rx_count);
+
+}
+
+int msm_hs_rx_receiving(struct uart_port *uport)
+{
+	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
+	unsigned int buffer_pending = msm_uport->rx.buffer_pending;
+	unsigned int rx_count;
+
+	if (buffer_pending && hs_serial_debug_mask)
+		printk(KERN_ERR "Error: rx started in buffer state = %x",
+		       buffer_pending);
+
+	rx_count = msm_hs_read(uport, UARTDM_RX_TOTAL_SNAP_ADDR);
+
+	return rx_count;
+}
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 
 /* request to turn off uart clock once pending TX is flushed */
 void msm_hs_request_clock_off(struct uart_port *uport) {

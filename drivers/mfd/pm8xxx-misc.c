@@ -10,6 +10,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -140,6 +144,8 @@
 #define REG_HSED_BIAS1_CNTL2		0x135
 #define REG_HSED_BIAS2_CNTL2		0x138
 #define HSED_EN_MASK			0xC0
+
+#define NCM_FUNCTION
 
 struct pm8xxx_misc_chip {
 	struct list_head			link;
@@ -554,10 +560,19 @@ int pm8xxx_smpl_control(int enable)
 					   : SLEEP_CTRL_SMPL_EN_PWR_OFF));
 			break;
 		case PM8XXX_VERSION_8921:
+#ifdef NCM_FUNCTION
+/* OEM Custom Qualcomm base ver 1030 */
+			rc = pm8xxx_misc_masked_write(chip,
+				REG_PM8921_SLEEP_CTRL, SLEEP_CTRL_SMPL_EN_MASK,
+				(enable ? SLEEP_CTRL_SMPL_EN_RESET
+					   : SLEEP_CTRL_SMPL_EN_PWR_OFF)); 
+#else
+/* Qualcomm original code ver 1030 */
 			rc = pm8xxx_misc_masked_write(chip,
 				REG_PM8921_SLEEP_CTRL, SLEEP_CTRL_SMPL_EN_MASK,
 				(enable ? SLEEP_CTRL_SMPL_EN_RESET
 					   : SLEEP_CTRL_SMPL_EN_PWR_OFF));
+#endif
 			break;
 		default:
 			/* PMIC doesn't have reset_pwr_off; do nothing. */
@@ -1065,7 +1080,9 @@ static int __devinit pm8xxx_misc_probe(struct platform_device *pdev)
 	struct pm8xxx_misc_chip *sibling;
 	struct list_head *prev;
 	unsigned long flags;
-	int rc = 0, irq;
+	int rc = 0, irq, ret = 0;
+
+    struct pm8xxx_coincell_chg coincell;
 
 	if (!pdata) {
 		pr_err("missing platform data\n");
@@ -1108,6 +1125,28 @@ static int __devinit pm8xxx_misc_probe(struct platform_device *pdev)
 	spin_unlock_irqrestore(&pm8xxx_misc_chips_lock, flags);
 
 	platform_set_drvdata(pdev, chip);
+
+	/* Hardreset config */
+	ret = pm8xxx_hard_reset_config(PM8XXX_RESTART_ON_HARD_RESET);
+	if (ret < 0)
+		pr_err("%s: could not set up pm8xxx_hard_reset_config: %d\n", __func__, ret);
+
+
+    /* power flicker config */
+	ret = pm8xxx_smpl_control(0x01);
+	if (ret < 0)
+		pr_err("%s: could not set up pm8xxx_smpl_control: %d\n", __func__, ret);
+	
+	ret = pm8xxx_smpl_set_delay(PM8XXX_SMPL_DELAY_1p0);
+	if (ret < 0)
+		pr_err("%s: could not set up pm8xxx_smpl_set_delay: %d\n", __func__, ret);
+    coincell.state    = PM8XXX_COINCELL_CHG_ENABLE;
+    coincell.voltage  = PM8XXX_COINCELL_VOLTAGE_3p2V;
+    coincell.resistor = PM8XXX_COINCELL_RESISTOR_800_OHMS;
+
+    ret = pm8xxx_coincell_chg_config(&coincell);
+	if (ret < 0)
+		pr_err("%s: could not set up pm8xxx_coincell_chg_config: %d\n", __func__, ret);
 
 	return rc;
 

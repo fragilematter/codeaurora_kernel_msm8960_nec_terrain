@@ -454,6 +454,46 @@ config LEDS_ASIC3
 	  cannot be used. This driver supports hardware blinking with an on+off
 	  period from 62ms to 125s. Say Y to enable LEDs on the HP iPAQ hx4700.
 
+config LEDS_ADP8861
+	tristate "LED Support for ADP8861 I2C chips"
+	depends on LEDS_CLASS
+	depends on I2C
+	help
+	  This option enables support for ADP8861 LED driver chips
+	  accessed via the I2C bus.
+
+config LEDS_LM3532
+	tristate "LED Support for LM3532 I2C chips"
+	depends on LEDS_CLASS
+	depends on I2C
+	help
+	  This option enables support for LM3532 LED driver chips
+	  accessed via the I2C bus.
+
+config LEDS_LM3537
+	tristate "LED Support for LM3537 I2C chips"
+	depends on LEDS_CLASS
+	depends on I2C
+	help
+	  This option enables support for LM3537 LED driver chips
+	  accessed via the I2C bus.
+
+config LEDS_DIAG_WRAPPER
+	tristate "LED Support for DBM7630 I2C chips"
+	depends on LEDS_CLASS
+	depends on I2C
+	help
+	  This option enables support for LEDs connected to DBM7630
+	  LED driver chips accessed via the I2C bus.  Supported
+
+config LEDS_ADP8861_ILLUMI
+	tristate "LED Support for ADP8861 I2C chips"
+	depends on LEDS_CLASS
+	depends on I2C
+	help
+	  This option enables support for ADP8861 LED driver chips
+	  accessed via the I2C bus.
+
 config LEDS_TRIGGERS
 	bool "LED Trigger support"
 	depends on LEDS_CLASS
@@ -526,6 +566,10 @@ config LEDS_TRIGGER_SLEEP
 	depends on LEDS_TRIGGERS && HAS_EARLYSUSPEND
 	help
 	  This turns LEDs on when the screen is off but the cpu still running.
+
+config LEDS_TRIGGER_CXO_OFF
+    tristate "LED CXO OFF Trigger"
+	depends on LEDS_TRIGGERS && HAS_EARLYSUSPEND
 
 comment "iptables trigger is under Netfilter config (LED target)"
 	depends on LEDS_TRIGGERS

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 /*
  * Modem Restart Notifier -- Provides notification
  *			     of modem restart events.
@@ -57,8 +61,11 @@ void modem_queue_start_reset_notify(void)
 
 	ret = queue_work(modem_notifier_wq, &modem_notifier_start_reset_work);
 
-	if (!ret)
-		printk(KERN_ERR "%s\n", __func__);
+    if (!ret)
+    {
+        printk(KERN_ERR "%s: queue_work err ret =%d \n", __func__,ret);
+        modem_notify(0, MODEM_NOTIFIER_START_RESET);
+    }
 }
 EXPORT_SYMBOL(modem_queue_start_reset_notify);
 

@@ -25,6 +25,11 @@
  *     provided "AS-IS" and at no charge.
  *
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <linux/skbuff.h>
 #include <linux/string.h>
@@ -327,10 +332,13 @@ async_unwrap_eof(struct net_device *dev,
 
 	switch(rx_buff->state) {
 	case OUTSIDE_FRAME:
-		/* Probably missed the BOF */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+#else /* CONFIG_FEATURE_NCMC_IRDA */
+
 		stats->rx_errors++;
 		stats->rx_missed_errors++;
 		irda_device_set_media_busy(dev, TRUE);
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 		break;
 
 	case BEGIN_FRAME:
@@ -382,7 +390,10 @@ async_unwrap_ce(struct net_device *dev,
 	switch(rx_buff->state) {
 	case OUTSIDE_FRAME:
 		/* Activate carrier sense */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 		irda_device_set_media_busy(dev, TRUE);
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 		break;
 
 	case LINK_ESCAPE:
@@ -447,8 +458,11 @@ async_unwrap_other(struct net_device *dev,
 
 	case OUTSIDE_FRAME:
 		/* Activate carrier sense */
+#ifdef CONFIG_FEATURE_NCMC_IRDA
+#else /* CONFIG_FEATURE_NCMC_IRDA */
 		if(byte != XBOF)
 			irda_device_set_media_busy(dev, TRUE);
+#endif /* CONFIG_FEATURE_NCMC_IRDA */
 		break;
 
 	case BEGIN_FRAME:

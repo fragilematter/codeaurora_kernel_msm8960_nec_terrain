@@ -10,6 +10,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 /*
  * Qualcomm PMIC 8921/8018 ADC driver header file
  *
@@ -91,6 +96,10 @@ enum pm8xxx_adc_channels {
 	ADC_MPP_2_ATEST_5,
 	ADC_MPP_2_ATEST_6,
 	ADC_MPP_2_ATEST_7,
+/* [Q89-PM-013] ADD-S */
+    CHANNEL_BATT_THERM_MV = 60,
+    CHANNEL_MUXOFF_MV,
+    CHANNEL_PA_THERM0_MV,
 	ADC_CHANNEL_MAX_NUM,
 };
 

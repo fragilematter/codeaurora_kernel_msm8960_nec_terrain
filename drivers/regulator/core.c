@@ -12,6 +12,10 @@
  *  option) any later version.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -3481,3 +3485,88 @@ unlock:
 	return 0;
 }
 late_initcall(regulator_init_complete);
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int oem_set_pulldown(struct regulator *regulator, unsigned int enable)
+{
+    struct regulator_dev *rdev = regulator->rdev;
+    int ret = 0;
+
+    if (!rdev->desc->ops->set_pull_down)
+        return -EINVAL;
+    
+    ret = rdev->desc->ops->set_pull_down(rdev, enable);
+
+    return ret;
+}
+EXPORT_SYMBOL(oem_set_pulldown);
+
+int oem_regulator_mode(struct regulator *regulator, unsigned int mode)
+{
+    struct regulator_dev *rdev = regulator->rdev;
+    int ret = 0;
+
+    if (!rdev->desc->ops->set_mode)
+        return -EINVAL;
+    
+    ret = rdev->desc->ops->set_mode(rdev, mode);
+
+    return ret;
+}
+EXPORT_SYMBOL(oem_regulator_mode);
+
+
+int oem_update_voltage(struct regulator *regulator, u32 min_uV, u32 max_uV)
+{
+    unsigned int selector;
+    struct regulator_dev *rdev = regulator->rdev;
+    int ret = 0;
+
+    if (!rdev->desc->ops->set_voltage)
+        return -ENOSYS;
+
+    ret = rdev->desc->ops->set_voltage(rdev, min_uV, max_uV, &selector);
+    if (ret)
+    {
+        pr_err("set_voltage Failed:%d\n", ret);
+        return -EINVAL;
+    }
+    
+    if (rdev->desc->ops->list_voltage)
+        selector = rdev->desc->ops->list_voltage(rdev, selector);
+
+    return ret;
+}
+EXPORT_SYMBOL(oem_update_voltage);
+
+
+int oem_regulator_enable(struct regulator *regulator)
+{
+    struct regulator_dev *rdev = regulator->rdev;
+    int ret = 0;
+
+    if (!rdev->desc->ops->enable)
+        return -EINVAL;
+    
+    ret = rdev->desc->ops->enable(rdev);
+
+    return ret;
+}
+EXPORT_SYMBOL(oem_regulator_enable);
+
+
+int oem_regulator_disable(struct regulator *regulator)
+{
+    struct regulator_dev *rdev = regulator->rdev;
+    int ret = 0;
+
+    if (!rdev->desc->ops->disable)
+        return -EINVAL;
+    
+    ret = rdev->desc->ops->disable(rdev);
+
+    return ret;
+}
+EXPORT_SYMBOL(oem_regulator_disable);
+#endif
+

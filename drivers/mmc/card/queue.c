@@ -9,6 +9,10 @@
  * published by the Free Software Foundation.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
@@ -19,6 +23,11 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include "queue.h"
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+#include "block.h"
+#include "../core/core.h"
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 
 #define MMC_QUEUE_BOUNCESZ	65536
 
@@ -59,9 +68,27 @@ static int mmc_queue_thread(void *d)
 	unsigned long bytes_xfer;
 #endif
 
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+	int sd_error = 0;
+	int sd_power_off = 0;
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+#ifndef CONFIG_MMC_PERF_PROFILING
+	struct mmc_host *host = mq->card->host;
+#endif /* CONFIG_MMC_PERF_PROFILING */
+
+	if (mmc_card_mmc(host->card)) {
+		wake_lock_init(&mq->queue_wlock, WAKE_LOCK_SUSPEND, "mmc_queue_thread");
+	}
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 
 	current->flags |= PF_MEMALLOC;
 
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+	if (mmc_card_mmc(host->card)) {
+		wake_lock(&mq->queue_wlock);
+	}
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 	down(&mq->thread_sem);
 	do {
 		req = NULL;	/* Must be set to NULL at each iteration */
@@ -78,7 +105,17 @@ static int mmc_queue_thread(void *d)
 				break;
 			}
 			up(&mq->thread_sem);
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+			if (mmc_card_mmc(host->card)) {
+				wake_unlock(&mq->queue_wlock);
+			}
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 			schedule();
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+			if (mmc_card_mmc(host->card)) {
+				wake_lock(&mq->queue_wlock);
+			}
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 			down(&mq->thread_sem);
 			continue;
 		}
@@ -108,8 +145,28 @@ static int mmc_queue_thread(void *d)
 #else
 			mq->issue_fn(mq, req);
 #endif
+
+#ifdef CONFIG_FEATURE_NCMC_SDCARD
+		if (mmc_card_sd(mq->card) && !sd_power_off) {
+			mmc_err_info_get(&sd_error);
+			if (sd_error) {
+				if (!mq->card->host->ops->get_cd ||
+						mq->card->host->ops->get_cd(mq->card->host)) {
+					pr_err("%s: Error card!!\n", __func__);
+					mmc_power_off(mq->card->host);
+					sd_power_off ++;
+				}
+			}
+		}
+#endif /* CONFIG_FEATURE_NCMC_SDCARD */
 	} while (1);
 	up(&mq->thread_sem);
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S)
+	if (mmc_card_mmc(host->card)) {
+		wake_unlock(&mq->queue_wlock);
+		wake_lock_destroy(&mq->queue_wlock);
+	}
+#endif /* defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 
 	return 0;
 }

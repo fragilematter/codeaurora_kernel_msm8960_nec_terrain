@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -39,6 +43,15 @@
 #include "mdp.h"
 #include "msm_fb.h"
 #include "mdp4.h"
+#if defined (LCD_DEVICE_D121M_PT)
+#include "mipi_renesas_d121m.h"
+#elif defined (LCD_DEVICE_D121F_PT)
+#include "mipi_renesas_d121f.h"
+#elif defined (LCD_DEVICE_G121S_PT)
+#include "mipi_renesas_g121s.h"
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+#include "mipi_renesas_hd.h"
+#endif
 
 #define VERSION_KEY_MASK	0xFFFFFF00
 
@@ -204,6 +217,8 @@ void mdp4_overlay_ctrl_db_reset(void)
 	for (i = MDP4_MIXER0; i < MDP4_MIXER_MAX; i++)
 		ctrl->mixer_cfg[i] = 0;
 }
+
+MSM_FB_REQUEST_FLAG mdp4_overlay_argb_enable = MSM_FB_REQUEST_ENABLE;
 
 int mdp4_overlay_mixer_play(int mixer_num)
 {
@@ -592,6 +607,12 @@ void mdp4_overlay_rgb_setup(struct mdp4_overlay_pipe *pipe)
 
 	outpdw(rgb_base + 0x0050, format);/* MDP_RGB_SRC_FORMAT */
 	outpdw(rgb_base + 0x0054, pattern);/* MDP_RGB_SRC_UNPACK_PATTERN */
+
+
+#ifdef CONFIG_GG3_LCD_ROTATION
+	pipe->op_mode |= (MDP4_OP_SCALEY_EN | MDP4_OP_SCALEX_EN | MDP4_OP_FLIP_UD | MDP4_OP_FLIP_LR);
+#endif
+
 	if (format & MDP4_FORMAT_SOLID_FILL) {
 		u32 op_mode = pipe->op_mode;
 		op_mode &= ~(MDP4_OP_FLIP_LR + MDP4_OP_SCALEX_EN);
@@ -770,6 +791,12 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 
 	outpdw(vg_base + 0x0050, format);	/* MDP_RGB_SRC_FORMAT */
 	outpdw(vg_base + 0x0054, pattern);	/* MDP_RGB_SRC_UNPACK_PATTERN */
+
+
+#ifdef CONFIG_GG3_LCD_ROTATION
+	pipe->op_mode |= (MDP4_OP_SCALEY_EN | MDP4_OP_SCALEX_EN | MDP4_OP_FLIP_UD | MDP4_OP_FLIP_LR);
+#endif
+
 	if (format & MDP4_FORMAT_SOLID_FILL) {
 		u32 op_mode = pipe->op_mode;
 		op_mode &= ~(MDP4_OP_FLIP_LR + MDP4_OP_SCALEX_EN);
@@ -1429,32 +1456,6 @@ int mdp4_mixer_info(int mixer_num, struct mdp_mixer_info *info)
 	return cnt;
 }
 
-static void mdp4_overlay_bg_solidfill_clear(uint32 mixer_num)
-{
-	struct mdp4_overlay_pipe *bg_pipe;
-	unsigned char *rgb_base;
-	uint32 rgb_src_format;
-	int pnum;
-
-	bg_pipe = mdp4_overlay_stage_pipe(mixer_num,
-		MDP4_MIXER_STAGE_BASE);
-	if (bg_pipe && bg_pipe->pipe_type == OVERLAY_TYPE_BF) {
-		bg_pipe = mdp4_overlay_stage_pipe(mixer_num,
-				MDP4_MIXER_STAGE0);
-	}
-
-	if (bg_pipe && bg_pipe->pipe_type == OVERLAY_TYPE_RGB) {
-		rgb_src_format = mdp4_overlay_format(bg_pipe);
-		if (!(rgb_src_format & MDP4_FORMAT_SOLID_FILL)) {
-			pnum = bg_pipe->pipe_num - OVERLAY_PIPE_RGB1;
-			rgb_base = MDP_BASE + MDP4_RGB_BASE;
-			rgb_base += MDP4_RGB_OFF * pnum;
-			outpdw(rgb_base + 0x50, rgb_src_format);
-			outpdw(rgb_base + 0x0058, bg_pipe->op_mode);
-			mdp4_overlay_reg_flush(bg_pipe, 0);
-		}
-	}
-}
 
 static void mdp4_mixer_stage_commit(int mixer)
 {
@@ -1675,8 +1676,9 @@ void mdp4_mixer_blend_setup(struct mdp4_overlay_pipe *pipe)
 			outpdw(rgb_base + 0x50, rgb_src_format);
 			outpdw(rgb_base + 0x1008, constant_color);
 		}
-	} else if (fg_alpha) {
-		if (!alpha_drop) {
+	} else if (fg_alpha && 
+               mdp4_overlay_argb_enable != MSM_FB_REQUEST_DISABLE) {
+if (!alpha_drop) {
 			blend_op = MDP4_BLEND_BG_ALPHA_FG_PIXEL;
 			if (!(pipe->flags & MDP_BLEND_FG_PREMULT))
 				blend_op |= MDP4_BLEND_FG_ALPHA_FG_PIXEL;
@@ -1685,8 +1687,9 @@ void mdp4_mixer_blend_setup(struct mdp4_overlay_pipe *pipe)
 
 		blend_op |= MDP4_BLEND_BG_INV_ALPHA;
 		fg_color3_out = 1; /* keep fg alpha */
-	} else if (bg_alpha) {
-		blend_op = (MDP4_BLEND_FG_ALPHA_BG_PIXEL |
+	} else if (bg_alpha && 
+               mdp4_overlay_argb_enable != MSM_FB_REQUEST_DISABLE) {
+	blend_op = (MDP4_BLEND_FG_ALPHA_BG_PIXEL |
 			    MDP4_BLEND_FG_INV_ALPHA);
 		if (!(pipe->flags & MDP_BLEND_FG_PREMULT))
 			blend_op |= MDP4_BLEND_BG_ALPHA_BG_PIXEL;
@@ -2576,18 +2579,6 @@ int mdp4_overlay_unset(struct fb_info *info, int ndx)
 #endif
 	}
 
-	if (mfd->mdp_rev >= MDP_REV_41 &&
-		mdp4_overlay_is_rgb_type(pipe->src_format) &&
-		!mfd->use_ov0_blt && (pipe->mixer_num == MDP4_MIXER0 ||
-		hdmi_prim_display)) {
-			ctrl->stage[pipe->mixer_num][pipe->mixer_stage] = NULL;
-	} else {
-		if (pipe->is_fg &&
-			!mdp4_overlay_is_rgb_type(pipe->src_format)) {
-			mdp4_overlay_bg_solidfill_clear(pipe->mixer_num);
-			pipe->is_fg = 0;
-		}
-
 		mdp4_mixer_stage_down(pipe);
 
 		if (pipe->mixer_num == MDP4_MIXER0) {
@@ -2626,7 +2617,6 @@ int mdp4_overlay_unset(struct fb_info *info, int ndx)
 								MDP4_MIXER1);
 			}
 		}
-	}
 
 	/* Reset any HSIC settings to default */
 	if (pipe->flags & MDP_DPP_HSIC) {
@@ -2765,6 +2755,7 @@ int mdp4_overlay_play(struct fb_info *info, struct msmfb_overlay_data *req)
 
 	addr = start + img->offset;
 	pipe->srcp0_addr = addr;
+	
 	pipe->srcp0_ystride = pipe->src_width * pipe->bpp;
 
 	if ((req->version_key & VERSION_KEY_MASK) == 0xF9E8D700)
@@ -2976,6 +2967,18 @@ end:
 	/* only source may use frame buffer */
 	if (img->flags & MDP_MEMORY_ID_TYPE_FB)
 		fput_light(srcp0_file, ps0_need);
+
+
+#if defined (LCD_DEVICE_D121M_PT)
+    mipi_renesas_d121m_enable_display(mfd);
+#elif defined (LCD_DEVICE_D121F_PT)
+    mipi_renesas_d121f_enable_display(mfd);
+#elif defined (LCD_DEVICE_G121S_PT)
+    mipi_renesas_g121s_enable_display(mfd);
+#elif defined (LCD_DEVICE_TOSHIBA_HD_PT)
+    mipi_renesas_enable_display(mfd);
+#endif
+
 	return ret;
 }
 

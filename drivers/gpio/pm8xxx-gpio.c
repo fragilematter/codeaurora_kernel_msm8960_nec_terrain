@@ -12,6 +12,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -79,6 +84,8 @@ struct pm_gpio_chip {
 
 static LIST_HEAD(pm_gpio_chips);
 static DEFINE_MUTEX(pm_gpio_chips_lock);
+
+static struct pm_gpio_chip *this_chip;
 
 static int pm_gpio_get(struct pm_gpio_chip *pm_gpio_chip, unsigned gpio)
 {
@@ -326,6 +333,8 @@ static int __devinit pm_gpio_probe(struct platform_device *pdev)
 	pr_info("OK: base=%d, ngpio=%d\n", pm_gpio_chip->gpio_chip.base,
 		pm_gpio_chip->gpio_chip.ngpio);
 
+    this_chip = pm_gpio_chip;
+
 	return 0;
 
 remove_chip:
@@ -459,3 +468,24 @@ MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("PMIC GPIO driver");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:" PM8XXX_GPIO_DEV_NAME);
+
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_gpio_get_state(int gpio, int *state)
+{
+    int rc;
+    
+    rc = pm_gpio_get(this_chip, gpio);
+    if (rc < 0)
+    {
+        pr_err("Failed on pm_gpio_get() return=%d\n",rc);
+        return rc;
+    }
+    
+    *state = rc;
+    
+    return 0;
+}
+EXPORT_SYMBOL(nc_pm8921_gpio_get_state);
+#endif
+

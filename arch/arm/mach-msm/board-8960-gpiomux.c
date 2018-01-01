@@ -11,6 +11,14 @@
  *
  */
 
+/*
+ * Copyright (C) 2011 NEC CASIO Mobile Communications, Ltd.
+ *
+ *  No permission to use, copy, modify and distribute this software
+ *  and its documentation for any purpose is granted.
+ *  This software is provided under applicable license agreement only.
+ */
+
 #include <asm/mach-types.h>
 #include <mach/gpio.h>
 #include <mach/gpiomux.h>
@@ -18,25 +26,47 @@
 #include "devices.h"
 #include "board-8960.h"
 
-/* The SPI configurations apply to GSBI 1*/
-static struct gpiomux_setting spi_active = {
-	.func = GPIOMUX_FUNC_1,
-	.drv = GPIOMUX_DRV_12MA,
-	.pull = GPIOMUX_PULL_NONE,
-};
 
-static struct gpiomux_setting spi_suspended_config = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_DOWN,
-};
-
-static struct gpiomux_setting spi_active_config2 = {
+#ifndef CONFIG_TOUCHSCREEN_eKTF2136
+static struct gpiomux_setting spi_active_config = {
 	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting spi_active_miso_config = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+
+#endif /* CONFIG_TOUCHSCREEN_eKTF2136 */
+
+static struct gpiomux_setting gsbi2 = {
+	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_8MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
+static struct gpiomux_setting gsbi2_1 = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_16MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting spi_active_config2 = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir =GPIOMUX_OUT_LOW,
+};
+static struct gpiomux_setting spi_active_miso = {
+	.func = GPIOMUX_FUNC_2,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+	.dir =GPIOMUX_OUT_LOW,
+};
 static struct gpiomux_setting spi_suspended_config2 = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
@@ -55,30 +85,92 @@ static struct gpiomux_setting gsbi3_active_cfg = {
 	.pull = GPIOMUX_PULL_NONE,
 };
 
-static struct gpiomux_setting gsbi5 = {
+#if defined(CONFIG_FEATURE_NCMC_FELICA) || defined(CONFIG_FEATURE_NCMC_IRDA)
+static struct gpiomux_setting ncm_2_2_n_l_cfg = {
+    .func = GPIOMUX_FUNC_2,
+    .drv = GPIOMUX_DRV_2MA,
+    .pull = GPIOMUX_PULL_NONE,
+    .dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting ncm_g_2_n_l_cfg = {
+    .func = GPIOMUX_FUNC_GPIO,
+    .drv = GPIOMUX_DRV_2MA,
+    .pull = GPIOMUX_PULL_NONE,
+    .dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting ncm_2_2_u_cfg = {
+    .func = GPIOMUX_FUNC_2,
+    .drv = GPIOMUX_DRV_2MA,
+    .pull = GPIOMUX_PULL_UP,
+    .dir = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting ncm_g_2_d_cfg = {
+    .func = GPIOMUX_FUNC_GPIO,
+    .drv = GPIOMUX_DRV_2MA,
+    .pull = GPIOMUX_PULL_DOWN,
+    .dir = GPIOMUX_IN,
+};
+#endif
+
+#if defined(CONFIG_FEATURE_NCMC_FELICA)
+static struct gpiomux_setting ncm_g_2_u_i_cfg = {
+    .func = GPIOMUX_FUNC_GPIO,
+    .drv = GPIOMUX_DRV_2MA,
+    .pull = GPIOMUX_PULL_UP,
+    .dir = GPIOMUX_IN,
+};
+#endif
+
+static struct gpiomux_setting gsbi8 = {
 	.func = GPIOMUX_FUNC_1,
-	.drv = GPIOMUX_DRV_8MA,
+	.drv = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
-static struct gpiomux_setting gsbi10 = {
-	.func = GPIOMUX_FUNC_2,
-	.drv = GPIOMUX_DRV_8MA,
+static struct gpiomux_setting gsbi8_1 = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_16MA,
 	.pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting gsbi11 = {
+       .func = GPIOMUX_FUNC_1,
+       .drv = GPIOMUX_DRV_2MA,
+       .pull = GPIOMUX_PULL_NONE,
+};
+
+static struct gpiomux_setting gsbi11_1 = {
+       .func = GPIOMUX_FUNC_1,
+       .drv = GPIOMUX_DRV_16MA,
+       .pull = GPIOMUX_PULL_NONE,
 };
 
 static struct gpiomux_setting gsbi12 = {
 	.func = GPIOMUX_FUNC_1,
-	.drv = GPIOMUX_DRV_8MA,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_DOWN,
+};
+
+static struct gpiomux_setting gsbi12_1 = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_16MA,
 	.pull = GPIOMUX_PULL_NONE,
 };
 
 static struct gpiomux_setting cdc_mclk = {
 	.func = GPIOMUX_FUNC_1,
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	.drv = GPIOMUX_DRV_2MA,
+#else/* CONFIG_FEATURE_NCMC_AUDIO */
 	.drv = GPIOMUX_DRV_8MA,
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 	.pull = GPIOMUX_PULL_NONE,
 };
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static struct gpiomux_setting audio_auxpcm[] = {
 	/* Suspended state */
 	{
@@ -93,6 +185,7 @@ static struct gpiomux_setting audio_auxpcm[] = {
 		.pull = GPIOMUX_PULL_NONE,
 	},
 };
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 
 #if defined(CONFIG_KS8851) || defined(CONFIG_KS8851_MODULE)
 static struct gpiomux_setting gpio_eth_config = {
@@ -104,57 +197,42 @@ static struct gpiomux_setting gpio_eth_config = {
 
 static struct gpiomux_setting slimbus = {
 	.func = GPIOMUX_FUNC_1,
+#ifdef CONFIG_FEATURE_NCMC_AUDIO
+	.drv = GPIOMUX_DRV_2MA,
+#else/* CONFIG_FEATURE_NCMC_AUDIO */
 	.drv = GPIOMUX_DRV_8MA,
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
 	.pull = GPIOMUX_PULL_KEEPER,
 };
 
-static struct gpiomux_setting wcnss_5wire_suspend_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv  = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_UP,
-};
 
-static struct gpiomux_setting wcnss_5wire_active_cfg = {
+static struct gpiomux_setting wcnss_5wire_active_cfg2 = {
 	.func = GPIOMUX_FUNC_1,
-	.drv  = GPIOMUX_DRV_6MA,
+	.drv  = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
 
-static struct gpiomux_setting cyts_resout_sus_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_6MA,
-	.pull = GPIOMUX_PULL_UP,
+static struct gpiomux_setting wcnss_5wire_active_cfg3 = {
+	.func = GPIOMUX_FUNC_1,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
 };
 
-static struct gpiomux_setting cyts_resout_act_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_6MA,
-	.pull = GPIOMUX_PULL_UP,
-};
 
-static struct gpiomux_setting cyts_sleep_sus_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_6MA,
-	.pull = GPIOMUX_PULL_DOWN,
-};
-
-static struct gpiomux_setting cyts_sleep_act_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_6MA,
-	.pull = GPIOMUX_PULL_DOWN,
-};
-
-static struct gpiomux_setting cyts_int_act_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_8MA,
-	.pull = GPIOMUX_PULL_UP,
-};
-
-static struct gpiomux_setting cyts_int_sus_cfg = {
+static struct gpiomux_setting cyts_int_sus_cfg2 = {
 	.func = GPIOMUX_FUNC_GPIO,
 	.drv = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
+
+static struct gpiomux_setting cyts_int_sus_cfg3 = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
 
 #ifdef CONFIG_USB_EHCI_MSM_HSIC
 static struct gpiomux_setting hsic_act_cfg = {
@@ -214,7 +292,7 @@ static struct gpiomux_setting ap2mdm_kpdpwr_n_cfg = {
 };
 
 static struct gpiomux_setting mdp_vsync_suspend_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
+	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_2MA,
 	.pull = GPIOMUX_PULL_DOWN,
 };
@@ -226,29 +304,17 @@ static struct gpiomux_setting mdp_vsync_active_cfg = {
 };
 
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
-static struct gpiomux_setting hdmi_suspend_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
-	.drv = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_DOWN,
-};
-
-static struct gpiomux_setting hdmi_active_1_cfg = {
-	.func = GPIOMUX_FUNC_1,
-	.drv = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_UP,
-};
-
-static struct gpiomux_setting hdmi_active_2_cfg = {
-	.func = GPIOMUX_FUNC_1,
-	.drv = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_DOWN,
-};
 
 static struct gpiomux_setting hdmi_active_3_cfg = {
-	.func = GPIOMUX_FUNC_GPIO,
+	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_2MA,
-	.pull = GPIOMUX_PULL_UP,
-	.dir = GPIOMUX_IN,
+	.pull = GPIOMUX_PULL_NONE,
+};
+static struct gpiomux_setting hdmi_active_3_cfg_out = {
+	.func = GPIOMUX_FUNC_1,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_HIGH,
 };
 
 static struct gpiomux_setting hdmi_active_4_cfg = {
@@ -276,33 +342,53 @@ static struct msm_gpiomux_config msm8960_ethernet_configs[] = {
 };
 #endif
 
+#ifdef CONFIG_TOUCHSCREEN_eKTF2136
+static struct gpiomux_setting touch_int_cfg =
+{
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+static struct gpiomux_setting touch_rst_cfg =
+{
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+static struct gpiomux_setting touch_susp_cfg =
+{
+	.func = GPIOMUX_FUNC_GPIO, /*suspend*/
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+};
+static struct gpiomux_setting touch_rstsusp_cfg =
+{
+	.func = GPIOMUX_FUNC_GPIO, /*suspend*/
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+};
+static struct gpiomux_setting touch_cs_cfg =
+{
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_HIGH,
+};
+#endif /* CONFIG_TOUCHSCREEN_eKTF2136 */
+
 static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 6,		/* GSBI1 QUP SPI_DATA_MOSI */
+		.gpio      = 12,	/* GSBI2 I2C QUP SDA */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
-			[GPIOMUX_ACTIVE] = &spi_active,
+			[GPIOMUX_SUSPENDED] = &gsbi2,
+			[GPIOMUX_ACTIVE] = &gsbi2_1,
 		},
 	},
 	{
-		.gpio      = 7,		/* GSBI1 QUP SPI_DATA_MISO */
+		.gpio      = 13,	/* GSBI2 I2C QUP SCL */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
-			[GPIOMUX_ACTIVE] = &spi_active,
-		},
-	},
-	{
-		.gpio      = 8,		/* GSBI1 QUP SPI_CS_N */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
-			[GPIOMUX_ACTIVE] = &spi_active,
-		},
-	},
-	{
-		.gpio      = 9,		/* GSBI1 QUP SPI_CLK */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
-			[GPIOMUX_ACTIVE] = &spi_active,
+			[GPIOMUX_SUSPENDED] = &gsbi2,
+			[GPIOMUX_ACTIVE] = &gsbi2_1,
 		},
 	},
 	{
@@ -326,54 +412,161 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 			[GPIOMUX_ACTIVE] = &gsbi3_active_cfg,
 		},
 	},
-	{
-		.gpio      = 22,	/* GSBI5 UART2 */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi5,
-		},
-	},
-	{
-		.gpio      = 23,	/* GSBI5 UART2 */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi5,
-		},
-	},
-	{
-		.gpio      = 24,	/* GSBI5 UART2 */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi5,
-		},
-	},
-	{
-		.gpio      = 25,	/* GSBI5 UART2 */
-		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi5,
-		},
-	},
+
+       {
+               .gpio      = 40,        /* GSBI11 NFC I2C SDA */
+               .settings = {
+                       [GPIOMUX_SUSPENDED] = &gsbi11,
+                       [GPIOMUX_ACTIVE] = &gsbi11_1,
+               },
+       },
+       {
+               .gpio      = 41,        /* GSBI11 NFC I2C SCL */
+               .settings = {
+                       [GPIOMUX_SUSPENDED] = &gsbi11,
+                       [GPIOMUX_ACTIVE] = &gsbi11_1,
+               },
+       },
 	{
 		.gpio      = 44,	/* GSBI12 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi12,
+			[GPIOMUX_ACTIVE] = &gsbi12_1,
 		},
 	},
 	{
 		.gpio      = 45,	/* GSBI12 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi12,
+			[GPIOMUX_ACTIVE] = &gsbi12_1,
+		},
+	},
+#if defined(CONFIG_FEATURE_NCMC_FELICA) || defined(CONFIG_FEATURE_NCMC_IRDA)
+	{
+		.gpio = 71,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &ncm_2_2_n_l_cfg,
+			[GPIOMUX_ACTIVE] = &ncm_g_2_n_l_cfg,
 		},
 	},
 	{
-		.gpio      = 73,	/* GSBI10 I2C QUP SDA */
+		.gpio = 72,
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi10,
+			[GPIOMUX_SUSPENDED] = &ncm_2_2_u_cfg,
+			[GPIOMUX_ACTIVE] = &ncm_g_2_d_cfg,
+		},
+	},
+#endif
+	{
+		.gpio      = 36,	/* GSBI8 I2C QUP SDA */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &gsbi8,
+			[GPIOMUX_ACTIVE] = &gsbi8_1,
 		},
 	},
 	{
-		.gpio      = 74,	/* GSBI10 I2C QUP SCL */
+		.gpio      = 37,	/* GSBI8 I2C QUP SCL */
 		.settings = {
-			[GPIOMUX_SUSPENDED] = &gsbi10,
+			[GPIOMUX_SUSPENDED] = &gsbi8,
+			[GPIOMUX_ACTIVE] = &gsbi8_1,
 		},
 	},
+#ifndef CONFIG_TOUCHSCREEN_eKTF2136
+	{
+		.gpio      = 93,		/* GSBI9 QUP SPI_DATA_MOSI */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_active_config,
+			[GPIOMUX_ACTIVE] = &spi_active_config,
+		},
+	},
+	{
+		.gpio      = 94,		/* GSBI9 QUP SPI_DATA_MISO */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_active_miso_config,
+			[GPIOMUX_ACTIVE] = &spi_active_miso_config,
+		},
+	},
+	{
+		.gpio      = 95,		/* GSBI9 QUP SPI_CS_N */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_active_config,
+			[GPIOMUX_ACTIVE] = &spi_active_config,
+		},
+	},
+	{
+		.gpio      = 96,		/* GSBI9 QUP SPI_CLK */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_active_config,
+			[GPIOMUX_ACTIVE] = &spi_active_config,
+		},
+	},
+#else /* CONFIG_TOUCHSCREEN_eKTF2136 */
+	{
+		.gpio      = 93,		/* GSBI9 QUP SPI_DATA_MOSI */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_suspended_config2, 
+			[GPIOMUX_ACTIVE] = &spi_active_config2,
+
+		},
+	},
+	{
+		.gpio      = 94,		/* GSBI9 QUP SPI_DATA_MISO */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_suspended_config2, 
+			[GPIOMUX_ACTIVE] = &spi_active_miso,
+		},
+	},
+	{
+		.gpio      = 95,		/* GSBI9 QUP SPI_CS_N */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &touch_cs_cfg,
+		},
+	},
+	{
+		.gpio      = 96,		/* GSBI9 QUP SPI_CLK */
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &spi_suspended_config2, 
+			[GPIOMUX_ACTIVE] = &spi_active_config2, 
+		},
+	},
+	{
+		.gpio = 18,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &touch_rstsusp_cfg,
+			[GPIOMUX_ACTIVE] = &touch_rst_cfg,
+		},
+	},
+	{
+		.gpio = 46,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &touch_susp_cfg,
+			[GPIOMUX_ACTIVE] = &touch_int_cfg,
+		},
+	},
+#endif /* CONFIG_TOUCHSCREEN_eKTF2136 */
+#if defined(CONFIG_FEATURE_NCMC_FELICA)
+    /* FE_RFS */
+    {
+        .gpio = 7,
+        .settings = {
+            [GPIOMUX_SUSPENDED] = &ncm_g_2_u_i_cfg,
+        },
+    },
+    /* FE_PON */
+    {
+        .gpio = 9,
+        .settings = {
+            [GPIOMUX_SUSPENDED] = &ncm_g_2_n_l_cfg,
+        },
+    },
+    /* FE_INT */
+    {
+        .gpio = 65,
+        .settings = {
+            [GPIOMUX_SUSPENDED] = &ncm_g_2_u_i_cfg,
+        },
+    },
+#endif
 };
 
 static struct msm_gpiomux_config msm8960_slimbus_config[] __initdata = {
@@ -400,6 +593,7 @@ static struct msm_gpiomux_config msm8960_audio_codec_configs[] __initdata = {
 	},
 };
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 static struct msm_gpiomux_config msm8960_audio_auxpcm_configs[] __initdata = {
 	{
 		.gpio = 63,
@@ -430,41 +624,43 @@ static struct msm_gpiomux_config msm8960_audio_auxpcm_configs[] __initdata = {
 		},
 	},
 };
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
 
 static struct msm_gpiomux_config wcnss_5wire_interface[] = {
 	{
 		.gpio = 84,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg,
-			[GPIOMUX_SUSPENDED] = &wcnss_5wire_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg2,
+			[GPIOMUX_SUSPENDED] = &wcnss_5wire_active_cfg2,
 		},
 	},
 	{
 		.gpio = 85,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg,
-			[GPIOMUX_SUSPENDED] = &wcnss_5wire_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg2,
+			[GPIOMUX_SUSPENDED] = &wcnss_5wire_active_cfg2,
 		},
 	},
 	{
 		.gpio = 86,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg,
-			[GPIOMUX_SUSPENDED] = &wcnss_5wire_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg2,
+			[GPIOMUX_SUSPENDED] = &wcnss_5wire_active_cfg2,
 		},
 	},
 	{
 		.gpio = 87,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg,
-			[GPIOMUX_SUSPENDED] = &wcnss_5wire_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg3,
+			[GPIOMUX_SUSPENDED] = &wcnss_5wire_active_cfg3,
 		},
 	},
 	{
 		.gpio = 88,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg,
-			[GPIOMUX_SUSPENDED] = &wcnss_5wire_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &wcnss_5wire_active_cfg3,
+			[GPIOMUX_SUSPENDED] = &wcnss_5wire_active_cfg3,
 		},
 	},
 };
@@ -473,22 +669,15 @@ static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 	{	/* TS INTERRUPT */
 		.gpio = 11,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &cyts_int_act_cfg,
-			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg,
+			[GPIOMUX_ACTIVE]    = &cyts_int_sus_cfg2,
+			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg2,
 		},
 	},
 	{	/* TS SLEEP */
 		.gpio = 50,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &cyts_sleep_act_cfg,
-			[GPIOMUX_SUSPENDED] = &cyts_sleep_sus_cfg,
-		},
-	},
-	{	/* TS RESOUT */
-		.gpio = 52,
-		.settings = {
-			[GPIOMUX_ACTIVE]    = &cyts_resout_act_cfg,
-			[GPIOMUX_SUSPENDED] = &cyts_resout_sus_cfg,
+			[GPIOMUX_ACTIVE]    = &cyts_int_sus_cfg3,
+			[GPIOMUX_SUSPENDED] = &cyts_int_sus_cfg3,
 		},
 	},
 };
@@ -607,6 +796,113 @@ static struct msm_gpiomux_config hap_lvl_shft_config[] __initdata = {
 	},
 };
 
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+static struct gpiomux_setting usb_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct msm_gpiomux_config msm8960_usb_sw_configs[] __initdata = {
+	{
+		.gpio = 68,
+		.settings = {
+			[GPIOMUX_SUSPENDED] = &usb_cfg,
+			[GPIOMUX_ACTIVE] = &usb_cfg,
+		},
+	},
+};
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
+#ifdef CONFIG_FEATURE_NCMC_DTV
+static struct gpiomux_setting dtv_reset_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir  = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting tsif_cfg_disable_2MA = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir  = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting tsif_cfg_enable_2MA = {
+	.func = GPIOMUX_FUNC_1,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir  = GPIOMUX_IN,
+};
+
+static struct msm_gpiomux_config dtv_configs[] __initdata = {
+	/* DTV_RST */
+	{
+		.gpio = 73,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &dtv_reset_cfg,
+			[GPIOMUX_SUSPENDED] = &dtv_reset_cfg,
+		},
+	},
+	/* TSIF_CLK */
+	{
+		.gpio = 75,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &tsif_cfg_enable_2MA,
+			[GPIOMUX_SUSPENDED] = &tsif_cfg_disable_2MA,
+		},
+	},
+	/* TSIF_EN */
+	{
+		.gpio = 76,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &tsif_cfg_enable_2MA,
+			[GPIOMUX_SUSPENDED] = &tsif_cfg_disable_2MA,
+		},
+	},
+	/* TSIF_DATA */
+	{
+		.gpio = 77,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &tsif_cfg_enable_2MA,
+			[GPIOMUX_SUSPENDED] = &tsif_cfg_disable_2MA,
+		},
+	},
+	/* TSIF_SYNC */
+	{
+		.gpio = 82,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &tsif_cfg_enable_2MA,
+			[GPIOMUX_SUSPENDED] = &tsif_cfg_disable_2MA,
+		},
+	},
+};
+#endif /* CONFIG_FEATURE_NCMC_DTV */
+
+#if defined(CONFIG_LEDS_ADP8861) || defined(CONFIG_LEDS_LM3532) || defined(CONFIG_LEDS_LM3537)
+static struct gpiomux_setting led_reset_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv  = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir  = GPIOMUX_OUT_HIGH,
+};
+
+static struct msm_gpiomux_config led_configs[] __initdata = {
+	/* LED_RST ADP8861 LM3532 LM3537 */
+	{
+		.gpio = 74,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &led_reset_cfg,
+			[GPIOMUX_SUSPENDED] = &led_reset_cfg,
+		},
+	},
+};
+#endif
+
 static struct msm_gpiomux_config mdm_configs[] __initdata = {
 	/* AP2MDM_STATUS */
 	{
@@ -667,43 +963,43 @@ static struct msm_gpiomux_config msm8960_hdmi_configs[] __initdata = {
 	{
 		.gpio = 99,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &hdmi_active_1_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &hdmi_active_3_cfg_out,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg_out,
 		},
 	},
 	{
 		.gpio = 100,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &hdmi_active_1_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &hdmi_active_3_cfg_out,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg_out,
 		},
 	},
 	{
 		.gpio = 101,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &hdmi_active_1_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &hdmi_active_3_cfg_out,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg_out,
 		},
 	},
 	{
 		.gpio = 102,
 		.settings = {
-			[GPIOMUX_ACTIVE]    = &hdmi_active_2_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_ACTIVE]    = &hdmi_active_3_cfg,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg,
 		},
 	},
-		{
+	{
 		.gpio = 15,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &hdmi_active_3_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg_out,
 		},
 	},
 	{
 		.gpio = 66,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &hdmi_active_4_cfg,
-			[GPIOMUX_SUSPENDED] = &hdmi_suspend_cfg,
+			[GPIOMUX_SUSPENDED] = &hdmi_active_3_cfg_out,
 		},
 	},
 };
@@ -786,6 +1082,119 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 };
 #endif
 
+#if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_NCM)
+static struct gpiomux_setting synaptics_cs_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting synaptics_int_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+	.dir = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting synaptics_2p8v_en_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct msm_gpiomux_config msm8960_synaptics_configs[] __initdata = {
+	{
+		.gpio = 95,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &synaptics_cs_cfg,
+			[GPIOMUX_SUSPENDED] = &synaptics_cs_cfg,
+		},
+	},
+	{
+		.gpio = 46,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &synaptics_int_cfg,
+			[GPIOMUX_SUSPENDED] = &synaptics_int_cfg,
+		},
+	},
+	{
+		.gpio = 18,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &synaptics_2p8v_en_cfg,
+			[GPIOMUX_SUSPENDED] = &synaptics_2p8v_en_cfg,
+		},
+	},
+};
+
+#endif /* defined(CONFIG_TOUCHSCREEN_SYNAPTICS_NCM) */
+static struct gpiomux_setting sensor_prox_light_int_active_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+	.dir = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting sensor_prox_light_int_suspended_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_UP,
+	.dir = GPIOMUX_IN,
+};
+
+static struct gpiomux_setting sensor_akm_rst_active_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+
+static struct gpiomux_setting sensor_akm_rst_suspended_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_NONE,
+	.dir = GPIOMUX_OUT_LOW,
+};
+	
+static struct gpiomux_setting sensor_akm_int_active_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_DOWN,
+	.dir = GPIOMUX_IN,
+};
+	
+static struct gpiomux_setting sensor_akm_int_suspended_cfg = {
+	.func = GPIOMUX_FUNC_GPIO,
+	.drv = GPIOMUX_DRV_2MA,
+	.pull = GPIOMUX_PULL_DOWN,
+	.dir = GPIOMUX_IN,
+};
+	
+static struct msm_gpiomux_config msm8960_sensor_configs[] __initdata = {
+	{
+		.gpio = 49,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sensor_prox_light_int_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sensor_prox_light_int_suspended_cfg,
+		},
+	},
+	{
+		.gpio = 50,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sensor_akm_rst_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sensor_akm_rst_suspended_cfg,
+		},
+	},
+	{
+		.gpio = 67,
+		.settings = {
+			[GPIOMUX_ACTIVE]    = &sensor_akm_int_active_cfg,
+			[GPIOMUX_SUSPENDED] = &sensor_akm_int_suspended_cfg,
+		},
+	},
+};
+
 int __init msm8960_init_gpiomux(void)
 {
 	int rc = msm_gpiomux_init(NR_GPIO_IRQS);
@@ -811,8 +1220,11 @@ int __init msm8960_init_gpiomux(void)
 	msm_gpiomux_install(msm8960_audio_codec_configs,
 			ARRAY_SIZE(msm8960_audio_codec_configs));
 
+#ifndef CONFIG_FEATURE_NCMC_AUDIO
 	msm_gpiomux_install(msm8960_audio_auxpcm_configs,
 			ARRAY_SIZE(msm8960_audio_auxpcm_configs));
+#endif/* CONFIG_FEATURE_NCMC_AUDIO */
+
 
 	msm_gpiomux_install(wcnss_5wire_interface,
 			ARRAY_SIZE(wcnss_5wire_interface));
@@ -843,12 +1255,36 @@ int __init msm8960_init_gpiomux(void)
 			ARRAY_SIZE(msm8960_hdmi_configs));
 #endif
 
+#if defined(CONFIG_TOUCHSCREEN_SYNAPTICS_NCM)
+	msm_gpiomux_install(msm8960_synaptics_configs,
+			ARRAY_SIZE(msm8960_synaptics_configs));
+#endif /* defined(CONFIG_TOUCHSCREEN_SYNAPTICS_NCM) */
+
 	msm_gpiomux_install(msm8960_mdp_vsync_configs,
 			ARRAY_SIZE(msm8960_mdp_vsync_configs));
 
 #ifdef CONFIG_MMC_MSM_SDC2_SUPPORT
 	msm_gpiomux_install(msm8960_sdcc2_configs,
 		ARRAY_SIZE(msm8960_sdcc2_configs));
+#endif
+#ifdef CONFIG_FEATURE_NCMC_USB
+#ifndef CONFIG_FEATURE_NCMC_RUBY
+	msm_gpiomux_install(msm8960_usb_sw_configs,
+			ARRAY_SIZE(msm8960_usb_sw_configs));
+#endif /* !CONFIG_FEATURE_NCMC_RUBY */
+#endif /* CONFIG_FEATURE_NCMC_USB */
+
+	msm_gpiomux_install(msm8960_sensor_configs,
+			ARRAY_SIZE(msm8960_sensor_configs));
+	
+#ifdef CONFIG_FEATURE_NCMC_DTV
+	msm_gpiomux_install(dtv_configs,
+			ARRAY_SIZE(dtv_configs));
+#endif /* CONFIG_FEATURE_NCMC_DTV */
+
+#if defined(CONFIG_LEDS_ADP8861) || defined(CONFIG_LEDS_LM3532) || defined(CONFIG_LEDS_LM3537)
+	msm_gpiomux_install(led_configs,
+			ARRAY_SIZE(led_configs));
 #endif
 
 	return 0;

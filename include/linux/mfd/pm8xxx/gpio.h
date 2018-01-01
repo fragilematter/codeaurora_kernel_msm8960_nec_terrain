@@ -10,11 +10,16 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 /*
  * Qualcomm PMIC8XXX gpio driver header file
  *
  */
+
 
 #ifndef __PM8XXX_GPIO_H
 #define __PM8XXX_GPIO_H
@@ -142,6 +147,8 @@ struct pm_gpio {
  * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
  */
 int pm8xxx_gpio_config(int gpio, struct pm_gpio *param);
+
+int nc_pm8921_gpio_get_state(int gpio, int *state);
 #else
 static inline int pm8xxx_gpio_config(int gpio, struct pm_gpio *param)
 {

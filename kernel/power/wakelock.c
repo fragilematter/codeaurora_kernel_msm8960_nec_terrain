@@ -12,6 +12,10 @@
  * GNU General Public License for more details.
  *
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -55,7 +59,11 @@ static struct wake_lock unknown_wakeup;
 static struct wake_lock suspend_backoff_lock;
 
 #define SUSPEND_BACKOFF_THRESHOLD	10
+#ifdef CONFIG_FEATURE_NCMC_RUBY
+#define SUSPEND_BACKOFF_INTERVAL        1000
+#else
 #define SUSPEND_BACKOFF_INTERVAL	10000
+#endif
 
 static unsigned suspend_short_count;
 

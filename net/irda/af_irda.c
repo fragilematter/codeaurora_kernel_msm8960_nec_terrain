@@ -41,6 +41,11 @@
  *                       IRDAPROTO_ULTRA: Connectionless and unreliable data
  *
  ********************************************************************/
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
+
 
 #include <linux/capability.h>
 #include <linux/module.h>
@@ -974,6 +979,8 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 	struct sockaddr_irda *addr = (struct sockaddr_irda *) uaddr;
 	struct irda_sock *self = irda_sk(sk);
 	int err;
+	int timeout;
+	int wait_ret;
 
 	IRDA_DEBUG(2, "%s(%p)\n", __func__, self);
 
@@ -1062,10 +1069,11 @@ static int irda_connect(struct socket *sock, struct sockaddr *uaddr,
 		goto out;
 
 	err = -ERESTARTSYS;
-	if (wait_event_interruptible(*(sk_sleep(sk)),
-				     (sk->sk_state != TCP_SYN_SENT)))
+	timeout = 2 * HZ; /* 2 second */
+	wait_ret = wait_event_interruptible_timeout(*(sk_sleep(sk)),(sk->sk_state != TCP_SYN_SENT),timeout);
+	if (0 == wait_ret) {
 		goto out;
-
+	}
 	if (sk->sk_state != TCP_ESTABLISHED) {
 		sock->state = SS_UNCONNECTED;
 		if (sk->sk_prot->disconnect(sk, flags))

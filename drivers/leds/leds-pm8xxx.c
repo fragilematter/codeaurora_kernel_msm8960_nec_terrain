@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/***********************************************************************/
+/* Modified by                                                         */
+/* (C) NEC CASIO Mobile Communications, Ltd. 2013                      */
+/***********************************************************************/
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -82,6 +86,12 @@ struct pm8xxx_led_data {
 	u32			pwm_period_us;
 	struct pm8xxx_pwm_duty_cycles *pwm_duty_cycles;
 };
+
+/* [Q89-PM-020] ADD-S */
+static struct pm8xxx_led_data *this_led;
+static int    this_num_leds;
+/* [Q89-PM-020] ADD-E */
+
 
 static void led_kp_set(struct pm8xxx_led_data *led, enum led_brightness value)
 {
@@ -209,6 +219,8 @@ static void pm8xxx_led_set(struct led_classdev *led_cdev,
 	enum led_brightness value)
 {
 	struct	pm8xxx_led_data *led;
+
+	printk(KERN_INFO "pm8xxx_led_set:value = %d\n", value );
 
 	led = container_of(led_cdev, struct pm8xxx_led_data, cdev);
 
@@ -417,13 +429,24 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 		mutex_init(&led_dat->lock);
 		INIT_WORK(&led_dat->work, pm8xxx_led_work);
 
+
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) || defined(CONFIG_FEATURE_NCMC_KAMITSUKIGAME) || defined(CONFIG_FEATURE_NCMC_SYLPH)
+		if( led_dat->id == PM8XXX_ID_LED_1 ){
+			rc = led_classdev_register(&pdev->dev, &led_dat->cdev);
+			if (rc) {
+				dev_err(&pdev->dev, "unable to register led %d,rc=%d\n",
+							 led_dat->id, rc);
+				goto fail_id_check;
+			}
+		}
+#else
 		rc = led_classdev_register(&pdev->dev, &led_dat->cdev);
 		if (rc) {
 			dev_err(&pdev->dev, "unable to register led %d,rc=%d\n",
 						 led_dat->id, rc);
 			goto fail_id_check;
 		}
-
+#endif /* #if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) */
 		if (led_cfg->mode != PM8XXX_LED_MODE_MANUAL) {
 			__pm8xxx_led_work(led_dat,
 					led_dat->cdev.max_brightness);
@@ -444,18 +467,32 @@ static int __devinit pm8xxx_led_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, led);
 
+    this_led = led;
+    this_num_leds = pcore_data->num_leds;
+
+	printk(KERN_INFO "pm8xxx_led_probe: OK\n");
+
 	return 0;
 
 fail_id_check:
 	if (i > 0) {
 		for (i = i - 1; i >= 0; i--) {
 			mutex_destroy(&led[i].lock);
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) || defined(CONFIG_FEATURE_NCMC_KAMITSUKIGAME) || defined(CONFIG_FEATURE_NCMC_SYLPH)
+			if( led[i].id == PM8XXX_ID_LED_1 ){
+				led_classdev_unregister(&led[i].cdev);
+			}
+#else
 			led_classdev_unregister(&led[i].cdev);
+#endif /* #if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) || defined(CONFIG_FEATURE_NCMC_KAMITSUKIGAME) || defined(CONFIG_FEATURE_NCMC_SYLPH) */
 			if (led[i].pwm_dev != NULL)
 				pwm_free(led[i].pwm_dev);
 		}
 	}
 	kfree(led);
+	
+	printk(KERN_INFO "pm8xxx_led_probe: NG\n");
+	
 	return rc;
 }
 
@@ -469,7 +506,14 @@ static int __devexit pm8xxx_led_remove(struct platform_device *pdev)
 	for (i = 0; i < pdata->num_leds; i++) {
 		cancel_work_sync(&led[i].work);
 		mutex_destroy(&led[i].lock);
+		
+#if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) || defined(CONFIG_FEATURE_NCMC_KAMITSUKIGAME) || defined(CONFIG_FEATURE_NCMC_SYLPH)
+		if( led[i].id == PM8XXX_ID_LED_1 ){
+			led_classdev_unregister(&led[i].cdev);
+		}
+#else
 		led_classdev_unregister(&led[i].cdev);
+#endif /* #if defined(CONFIG_FEATURE_NCMC_D121F) || defined(CONFIG_FEATURE_NCMC_D121M) || defined(CONFIG_FEATURE_NCMC_G121S) || defined(CONFIG_FEATURE_NCMC_KAMITSUKIGAME) || defined(CONFIG_FEATURE_NCMC_SYLPH) */
 		if (led[i].pwm_dev != NULL)
 			pwm_free(led[i].pwm_dev);
 	}
@@ -504,3 +548,24 @@ MODULE_DESCRIPTION("PM8XXX LEDs driver");
 MODULE_LICENSE("GPL v2");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("platform:pm8xxx-led");
+
+
+#ifdef CONFIG_FEATURE_NCMC_POWER
+int nc_pm8921_led_set_brightness(int led_id, int brightness)
+{
+    
+    if (led_id >= this_num_leds)
+    {
+        pr_err("invalid LED Num (%d) specified\n", led_id);
+        return -EINVAL;
+    }
+
+    pm8xxx_led_set(&this_led[led_id].cdev, brightness);
+    
+    pr_info("LED ID(%d)  Set to brightness is %x\n",this_led[led_id].id, brightness);
+    
+    return 0;
+}
+EXPORT_SYMBOL_GPL(nc_pm8921_led_set_brightness);
+
+#endif
